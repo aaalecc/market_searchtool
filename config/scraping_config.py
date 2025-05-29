@@ -5,6 +5,7 @@ Headers, user agents, and settings for both requests and Selenium scrapers.
 
 import random
 from typing import Dict, List, Any
+import requests
 
 # =============================================================================
 # USER AGENTS POOL
@@ -290,4 +291,16 @@ def get_delay_config(site_id: str) -> Dict[str, float]:
     if should_use_selenium(site_id):
         return REQUEST_DELAYS['dynamic_sites']
     else:
-        return REQUEST_DELAYS['simple_sites'] 
+        return REQUEST_DELAYS['simple_sites']
+
+# Add to scraping_config.py
+COOKIE_CONFIG = {
+    'enabled': True,
+    'persist_cookies': True,
+    'cookie_jar_file': 'data/cookies.txt',
+    'max_cookie_age_days': 7
+}
+
+# Implementation
+session = requests.Session()
+session.cookies.update(cookie_jar)  # Maintain session state 
