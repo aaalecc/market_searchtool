@@ -1,1 +1,1 @@
-# Main CustomTkinter window with 3 tabs: Search, Feed, and Favorites 
+# Main CustomTkinter window with 4 tabs: Search, Feed, Favorites, and Settings 

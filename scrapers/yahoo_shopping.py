@@ -1,1 +1,0 @@
-# Yahoo Shopping scraper (requests + BeautifulSoup - simple HTML structure) 

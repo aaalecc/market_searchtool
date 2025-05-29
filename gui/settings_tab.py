@@ -1,0 +1,1 @@
+# Settings tab - User configuration for Discord webhook, notifications, and app preferences 

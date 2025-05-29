@@ -48,19 +48,12 @@ SIMPLE_SITES = {
         'search_url': 'https://paypayfleamarket.yahoo.co.jp/search',
         'priority': 2
     },
-    'yahoo_shopping': {
-        'name': 'Yahoo Shopping',
-        'enabled': True,
-        'base_url': 'https://shopping.yahoo.co.jp',
-        'search_url': 'https://shopping.yahoo.co.jp/search',
-        'priority': 3
-    },
     'rakuten': {
         'name': 'Rakuten',
         'enabled': True,
         'base_url': 'https://search.rakuten.co.jp',
         'search_url': 'https://search.rakuten.co.jp/search/mall',
-        'priority': 4
+        'priority': 3
     }
 }
 
@@ -71,21 +64,21 @@ DYNAMIC_SITES = {
         'enabled': True,
         'base_url': 'https://jp.mercari.com',
         'search_url': 'https://jp.mercari.com/search',
-        'priority': 5
+        'priority': 4
     },
     'grailed': {
         'name': 'Grailed',
         'enabled': False,  # International site, disabled by default
         'base_url': 'https://www.grailed.com',
         'search_url': 'https://www.grailed.com/shop',
-        'priority': 6
+        'priority': 5
     },
     'sneaker_dunk': {
         'name': 'SneakerDunk',
         'enabled': False,  # Specialized site, disabled by default
         'base_url': 'https://snkrdunk.com',
         'search_url': 'https://snkrdunk.com/search',
-        'priority': 7
+        'priority': 6
     }
 }
 
@@ -93,7 +86,7 @@ DYNAMIC_SITES = {
 ALL_SITES = {**SIMPLE_SITES, **DYNAMIC_SITES}
 
 # Default enabled sites (only Japanese mainstream sites)
-DEFAULT_ENABLED_SITES = ['yahoo_auctions', 'yahoo_flea_market', 'yahoo_shopping', 'rakuten', 'mercari']
+DEFAULT_ENABLED_SITES = ['yahoo_auctions', 'yahoo_flea_market', 'rakuten', 'mercari']
 
 # =============================================================================
 # SEARCH CONFIGURATION
@@ -169,8 +162,8 @@ WINDOW_CONFIG = {
 
 # Tab configuration
 TAB_CONFIG = {
-    'default_tab': 'search',  # 'search', 'feed', 'favorites'
-    'tab_names': ['Search', 'Feed', 'Favorites']
+    'default_tab': 'search',  # 'search', 'feed', 'favorites', 'settings'
+    'tab_names': ['Search', 'Feed', 'Favorites', 'Settings']
 }
 
 # Results display

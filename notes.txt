@@ -1,0 +1,33 @@
+
+CONFIG:
+    - SCRAPING CONFIGS
+        BS4
+        SELENIUM
+    - SETTINGS
+        GUI SETTINGS (DEFAULT)
+
+SQL-DATABASE:
+    ???????? リサーチ不足
+
+SCRAPERS:
+    - GRAILED
+    - MERCARI
+    - YAHOO AUC
+    - YAHOO FLEA
+    - SNKRDNK
+    - RAKUMA
+
+GUI:
+    - SEARCH TAB
+    - FEED TAB
+    - FAVORITES TAB
+    - SETTINGS TAB
+        GUI apperance
+        webhook-rul linking
+        notification settings
+
+NOTIFICATIONS: 
+    - DESKTOP NOTI
+        plyer library (easy implementaiton)
+    - DISCORD NOTI
+        webhook-url (GUI settings tab)
