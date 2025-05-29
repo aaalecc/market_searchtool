@@ -1,0 +1,1 @@
+# Rakuten scraper (requests + BeautifulSoup - simple HTML structure) 

@@ -1,0 +1,1 @@
+# Mercari scraper (Selenium - dynamic SPA with anti-bot protection) 

@@ -1,0 +1,1 @@
+# Yahoo Flea Market scraper (requests + BeautifulSoup - simple HTML structure) 

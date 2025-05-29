@@ -1,0 +1,1 @@
+# Yahoo Auctions scraper (requests + BeautifulSoup - simple HTML structure) 

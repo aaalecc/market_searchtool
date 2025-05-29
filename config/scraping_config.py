@@ -1,0 +1,1 @@
+# Scraping configuration and headers (no API keys needed) 

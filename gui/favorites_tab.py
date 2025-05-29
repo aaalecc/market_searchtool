@@ -1,0 +1,1 @@
+# Favorites tab - Save and manage interesting listings for later viewing 
