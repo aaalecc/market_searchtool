@@ -1,9 +1,12 @@
-GIT COMMANDS
-    - BRANCH COMMANDS
+COMMANDS
+    - GIT BRANCH COMMANDS
         git branch "branch_name"
         git checkout "branch_name"
         git checkout "master"
         git merge "branch_name"
+    - PYTHON RUN COMMANDS
+        python main.py --no-gui
+        python main.py --debug
 CONFIG:
     - SCRAPING CONFIGS
         BS4
