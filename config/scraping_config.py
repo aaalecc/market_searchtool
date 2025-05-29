@@ -6,6 +6,7 @@ Headers, user agents, and settings for both requests and Selenium scrapers.
 import random
 from typing import Dict, List, Any
 import requests
+from http.cookiejar import CookieJar
 
 # =============================================================================
 # USER AGENTS POOL
@@ -153,7 +154,8 @@ SESSION_CONFIG = {
     'backoff_factor': 0.3,
     'timeout': (10, 30),  # (connect timeout, read timeout)
     'allow_redirects': True,
-    'verify_ssl': True
+    'verify_ssl': True,
+    'cookies': CookieJar()  # Use a proper CookieJar instance
 }
 
 # Connection pool settings
@@ -249,33 +251,29 @@ def get_selenium_driver_config(site_id: str = None) -> Dict[str, Any]:
     Get complete Selenium WebDriver configuration for a site.
     
     Args:
-        site_id: Site identifier for site-specific config
+        site_id: Site identifier for site-specific settings
         
     Returns:
-        Dictionary with WebDriver configuration
+        Dictionary of Selenium configuration
     """
-    # Determine if site needs stealth mode
-    stealth_sites = ['mercari', 'grailed', 'sneaker_dunk']
-    stealth_mode = site_id in stealth_sites if site_id else False
-    
     return {
-        'chrome_options': get_chrome_options(stealth_mode=stealth_mode),
         'timeouts': SELENIUM_TIMEOUTS,
         'selectors': SELENIUM_SELECTORS,
-        'stealth_mode': stealth_mode
+        'options': get_chrome_options(stealth_mode=True)
     }
 
 def should_use_selenium(site_id: str) -> bool:
     """
-    Determine if a site requires Selenium vs requests.
+    Determine if a site requires Selenium for scraping.
     
     Args:
         site_id: Site identifier
         
     Returns:
-        True if site needs Selenium, False for requests
+        True if site requires Selenium, False otherwise
     """
-    selenium_sites = ['mercari', 'grailed', 'sneaker_dunk']
+    # Sites that need JavaScript or have strong anti-bot measures
+    selenium_sites = {'mercari', 'grailed', 'sneaker_dunk'}
     return site_id in selenium_sites
 
 def get_delay_config(site_id: str) -> Dict[str, float]:
@@ -286,21 +284,8 @@ def get_delay_config(site_id: str) -> Dict[str, float]:
         site_id: Site identifier
         
     Returns:
-        Dictionary with delay settings
+        Dictionary of delay settings
     """
     if should_use_selenium(site_id):
         return REQUEST_DELAYS['dynamic_sites']
-    else:
-        return REQUEST_DELAYS['simple_sites']
-
-# Add to scraping_config.py
-COOKIE_CONFIG = {
-    'enabled': True,
-    'persist_cookies': True,
-    'cookie_jar_file': 'data/cookies.txt',
-    'max_cookie_age_days': 7
-}
-
-# Implementation
-session = requests.Session()
-session.cookies.update(cookie_jar)  # Maintain session state 
+    return REQUEST_DELAYS['simple_sites'] 
