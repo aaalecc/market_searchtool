@@ -84,7 +84,7 @@ class RakutenScraper:
             search_url = response.url
             soup = BeautifulSoup(response.text, 'html.parser')
             items = []
-            # seen_urls = set()  # Revert deduplication
+
             # First request to get total number of pages
             self._respect_rate_limits()
             response = self.session.get(url, params=params, headers=headers, allow_redirects=SESSION_CONFIG['allow_redirects'], verify=SESSION_CONFIG['verify_ssl'])
@@ -150,10 +150,7 @@ class RakutenScraper:
                         # Image extraction
                         img_elem = item.select_one('img')
                         image_url = img_elem['src'] if img_elem else None
-                        # Deduplicate by URL
-                        # if url in seen_urls:
-                        #     continue
-                        # seen_urls.add(url)
+
                         item_data = {
                             'id': item_id,
                             'title': title,

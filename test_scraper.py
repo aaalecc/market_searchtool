@@ -2,11 +2,11 @@
 Test script for Yahoo Auctions scraper.
 """
 
-import json
 from datetime import datetime
 from scrapers.yahoo_auctions import YahooAuctionsScraper
 import logging
 import argparse
+from core.database import insert_items, get_database_stats
 
 # Setup logging
 logging.basicConfig(
@@ -27,6 +27,7 @@ def main():
     keywords = ['ディグダ', 'カード']
     min_price = 50
     max_price = 1000
+    search_query = ' '.join(keywords)
 
     search_options = {
         'keywords': keywords,
@@ -47,6 +48,30 @@ def main():
             if results['items']:
                 print(f"Yahoo Auctions: Found {len(results['items'])} items")
                 print(f"Search URL: {results['search_url']}")
+                
+                # Convert items to database format
+                db_items = []
+                for item in results['items']:
+                    db_item = {
+                        'title': item['title'],
+                        'price_value': item['price'],
+                        'currency': 'JPY',
+                        'price_raw': str(item['price']),
+                        'price_formatted': format_price(item['price']),
+                        'url': item['url'],
+                        'site': 'Yahoo Auctions',
+                        'image_url': item.get('image_url'),
+                        'seller': None,
+                        'location': None,
+                        'condition': None,
+                        'shipping_info': '{}'
+                    }
+                    db_items.append(db_item)
+                
+                # Insert items into database
+                inserted_count = insert_items(db_items, search_query=search_query)
+                print(f"Yahoo Auctions: Inserted {inserted_count} new items into database")
+                
                 site_results['yahoo'] = results['items']
                 results_all.extend(results['items'])
             else:
@@ -67,6 +92,30 @@ def main():
             if results['items']:
                 print(f"Rakuten: Found {len(results['items'])} items")
                 print(f"Search URL: {results['search_url']}")
+                
+                # Convert items to database format
+                db_items = []
+                for item in results['items']:
+                    db_item = {
+                        'title': item['title'],
+                        'price_value': item['price'],
+                        'currency': 'JPY',
+                        'price_raw': str(item['price']),
+                        'price_formatted': format_price(item['price']),
+                        'url': item['url'],
+                        'site': 'Rakuten',
+                        'image_url': item.get('image_url'),
+                        'seller': None,
+                        'location': None,
+                        'condition': None,
+                        'shipping_info': '{}'
+                    }
+                    db_items.append(db_item)
+                
+                # Insert items into database
+                inserted_count = insert_items(db_items, search_query=search_query)
+                print(f"Rakuten: Inserted {inserted_count} new items into database")
+                
                 site_results['rakuten'] = results['items']
                 results_all.extend(results['items'])
             else:
@@ -76,27 +125,12 @@ def main():
         finally:
             scraper.cleanup()
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    if len(args.sites) == 1:
-        site = args.sites[0]
-        filename = f"{site}_results_{timestamp}.json"
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(site_results[site], f, ensure_ascii=False, indent=2)
-        print(f"\nResults saved to: {filename}")
-    else:
-        filename = f"combined_results_{timestamp}.json"
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(results_all, f, ensure_ascii=False, indent=2)
-        print(f"\nResults saved to: {filename}")
-
-    # Print summary
-    print("\nSummary:")
-    total = 0
-    for site in args.sites:
-        count = len(site_results.get(site, []))
-        print(f"{site.capitalize()}: {count} items")
-        total += count
-    print(f"Total: {total} items")
+    # Print database statistics
+    stats = get_database_stats()
+    print("\nDatabase Statistics:")
+    print(f"Total items: {stats['total_items']}")
+    print(f"Yahoo Auctions items: {stats['yahoo_items']}")
+    print(f"Rakuten items: {stats['rakuten_items']}")
 
 if __name__ == "__main__":
     main() 

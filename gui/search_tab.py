@@ -5,6 +5,10 @@ CustomTkinter interface for searching marketplace sites.
 
 import customtkinter as ctk
 import logging
+from typing import List, Dict, Any
+from core.database import DatabaseManager, get_search_results
+from core.scrapers import get_available_scrapers
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +24,12 @@ class SearchTab(ctk.CTkFrame):
         # Configure layout
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
+        
+        # Initialize database manager
+        self.db = DatabaseManager()
+        
+        # Get available scrapers
+        self.available_scrapers = get_available_scrapers()
         
         # Create the interface
         self.create_widgets()
@@ -50,8 +60,8 @@ class SearchTab(ctk.CTkFrame):
         self.title_label = ctk.CTkLabel(
             self.header_frame,
             text="マーケットサイト検索",
-            font=ctk.CTkFont(size=36, weight="bold"),  # Larger for better Japanese readability
-            text_color="#FFFFFF",  # Pure white
+            font=ctk.CTkFont(size=36, weight="bold"),
+            text_color="#FFFFFF",
             anchor="w"
         )
         self.title_label.grid(row=0, column=0, padx=30, pady=25, sticky="w")
@@ -67,166 +77,387 @@ class SearchTab(ctk.CTkFrame):
         self.content_frame.grid_columnconfigure(0, weight=1)
         self.content_frame.grid_rowconfigure(1, weight=1)
         
-        # Spotify-style search section
+        # Search container
         self.search_container = ctk.CTkFrame(
             self.content_frame,
-            corner_radius=20,  # More rounded like Spotify
-            fg_color="#282828",  # Spotify card background
+            corner_radius=20,
+            fg_color="#282828",
             border_width=0
         )
         self.search_container.grid(row=0, column=0, sticky="ew", pady=(0, 25))
         
-        # Search form with Spotify styling
+        # Search form
         self.form_frame = ctk.CTkFrame(self.search_container, fg_color="transparent")
         self.form_frame.grid(row=0, column=0, sticky="ew", padx=30, pady=25)
         self.form_frame.grid_columnconfigure(1, weight=1)
         
-        # Search label with larger Japanese font
+        # Search label
         search_label = ctk.CTkLabel(
             self.form_frame,
             text="検索キーワード",
-            font=ctk.CTkFont(size=18, weight="bold"),  # Larger
-            text_color="#FFFFFF"  # Pure white
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color="#FFFFFF"
         )
         search_label.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 15))
         
-        # Spotify-style search entry
+        # Search entry
         self.search_entry = ctk.CTkEntry(
             self.form_frame,
             placeholder_text="検索したい商品名を入力してください...",
-            height=50,  # Taller
+            height=50,
             width=500,
-            corner_radius=25,  # Very rounded like Spotify
-            font=ctk.CTkFont(size=16),  # Larger font
+            corner_radius=25,
+            font=ctk.CTkFont(size=16),
             border_width=2,
             border_color="#535353",
-            fg_color="#121212",  # Darker background
+            fg_color="#121212",
             text_color="#FFFFFF",
             placeholder_text_color="#B3B3B3"
         )
         self.search_entry.grid(row=1, column=0, columnspan=2, sticky="ew", padx=(0, 20), pady=(0, 0))
         
-        # Purple-style search button
+        # Search button
         self.search_button = ctk.CTkButton(
             self.form_frame,
             text="🔍  検索実行",
             height=50,
             width=150,
-            corner_radius=25,  # Very rounded
+            corner_radius=25,
             font=ctk.CTkFont(size=16, weight="bold"),
-            fg_color="#8B5CF6",  # Purple accent
+            fg_color="#8B5CF6",
             hover_color="#A78BFA",
-            text_color="#FFFFFF",  # White text on purple
+            text_color="#FFFFFF",
             command=self.perform_search
         )
         self.search_button.grid(row=1, column=2, sticky="e")
         
-        # Filter info with Spotify styling
-        self.filter_info = ctk.CTkLabel(
-            self.form_frame,
-            text="💡 すべてのサイト • 全価格帯 • 新着順で検索します",
-            font=ctk.CTkFont(size=13, weight="normal"),  # Fixed font weight
-            text_color="#B3B3B3"  # Spotify secondary
-        )
-        self.filter_info.grid(row=2, column=0, columnspan=3, sticky="w", pady=(18, 0))
+        # Price range frame
+        self.price_frame = ctk.CTkFrame(self.form_frame, fg_color="transparent")
+        self.price_frame.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(15, 0))
         
-        # Results placeholder with Spotify design
+        # Min price
+        min_price_label = ctk.CTkLabel(
+            self.price_frame,
+            text="最低価格:",
+            font=ctk.CTkFont(size=14),
+            text_color="#FFFFFF"
+        )
+        min_price_label.grid(row=0, column=0, padx=(0, 10))
+        
+        self.min_price_entry = ctk.CTkEntry(
+            self.price_frame,
+            placeholder_text="¥",
+            width=120,
+            height=35,
+            corner_radius=17,
+            font=ctk.CTkFont(size=14),
+            border_width=2,
+            border_color="#535353",
+            fg_color="#121212",
+            text_color="#FFFFFF"
+        )
+        self.min_price_entry.grid(row=0, column=1, padx=(0, 20))
+        
+        # Max price
+        max_price_label = ctk.CTkLabel(
+            self.price_frame,
+            text="最高価格:",
+            font=ctk.CTkFont(size=14),
+            text_color="#FFFFFF"
+        )
+        max_price_label.grid(row=0, column=2, padx=(0, 10))
+        
+        self.max_price_entry = ctk.CTkEntry(
+            self.price_frame,
+            placeholder_text="¥",
+            width=120,
+            height=35,
+            corner_radius=17,
+            font=ctk.CTkFont(size=14),
+            border_width=2,
+            border_color="#535353",
+            fg_color="#121212",
+            text_color="#FFFFFF"
+        )
+        self.max_price_entry.grid(row=0, column=3)
+        
+        # Site selection frame
+        self.sites_frame = ctk.CTkFrame(self.form_frame, fg_color="transparent")
+        self.sites_frame.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(15, 0))
+        
+        # Site selection label
+        sites_label = ctk.CTkLabel(
+            self.sites_frame,
+            text="検索サイト:",
+            font=ctk.CTkFont(size=14),
+            text_color="#FFFFFF"
+        )
+        sites_label.grid(row=0, column=0, padx=(0, 10))
+        
+        # Site checkboxes
+        self.site_vars = {}
+        for i, (site_id, scraper) in enumerate(self.available_scrapers.items()):
+            var = ctk.BooleanVar(value=True)
+            self.site_vars[site_id] = var
+            checkbox = ctk.CTkCheckBox(
+                self.sites_frame,
+                text=scraper.name,
+                variable=var,
+                font=ctk.CTkFont(size=14),
+                text_color="#FFFFFF",
+                fg_color="#8B5CF6",
+                hover_color="#A78BFA",
+                border_color="#535353"
+            )
+            checkbox.grid(row=0, column=i+1, padx=10)
+        
+        # Results container
         self.results_container = ctk.CTkFrame(
             self.content_frame,
             corner_radius=20,
-            fg_color="#282828",  # Spotify card background
+            fg_color="#282828",
             border_width=0
         )
         self.results_container.grid(row=1, column=0, sticky="nsew")
         
-        # Placeholder with Spotify styling
-        self.placeholder_frame = ctk.CTkFrame(self.results_container, fg_color="transparent")
-        self.placeholder_frame.pack(expand=True, fill="both", padx=50, pady=50)
-        
-        # Large icon
-        self.placeholder_icon = ctk.CTkLabel(
-            self.placeholder_frame,
-            text="🔍",
-            font=ctk.CTkFont(size=80),  # Larger icon
-            text_color="#B3B3B3"
+        # Results scrollable frame
+        self.results_frame = ctk.CTkScrollableFrame(
+            self.results_container,
+            fg_color="transparent",
+            corner_radius=0
         )
-        self.placeholder_icon.pack(pady=(30, 20))
+        self.results_frame.pack(expand=True, fill="both", padx=20, pady=20)
         
-        # Main title with larger Japanese font
-        self.placeholder_title = ctk.CTkLabel(
-            self.placeholder_frame,
-            text="検索機能開発中",
-            font=ctk.CTkFont(size=28, weight="bold"),  # Larger
-            text_color="#FFFFFF"  # Pure white
-        )
-        self.placeholder_title.pack(pady=(0, 12))
-        
-        # Subtitle
-        self.placeholder_subtitle = ctk.CTkLabel(
-            self.placeholder_frame,
-            text="まもなく利用可能になります",
-            font=ctk.CTkFont(size=16, weight="normal"),  # Fixed font weight
-            text_color="#B3B3B3"
-        )
-        self.placeholder_subtitle.pack(pady=(0, 35))
-        
-        # Feature list with Spotify styling
-        self.features_frame = ctk.CTkFrame(
-            self.placeholder_frame, 
-            fg_color="#3E3E3E",  # Slightly lighter than card
-            corner_radius=16
-        )
-        self.features_frame.pack(fill="x", pady=15)
-        
-        features_text = """実装予定の機能:
-
-✓ サイト選択チェックボックス
-✓ 価格帯フィルター設定  
-✓ 検索結果のグリッド表示
-✓ お気に入り追加ボタン
-✓ 検索条件の保存機能
-✓ 並び替えオプション"""
-        
-        self.features_label = ctk.CTkLabel(
-            self.features_frame,
-            text=features_text,
-            font=ctk.CTkFont(size=14, weight="normal"),  # Fixed font weight
-            text_color="#FFFFFF",  # White text for better contrast
-            justify="left"
-        )
-        self.features_label.pack(padx=30, pady=25)
+        # Configure grid columns for results
+        for i in range(4):
+            self.results_frame.grid_columnconfigure(i, weight=1, uniform="col")
     
     def perform_search(self):
         """Perform search with purple-style feedback."""
+        # Get search parameters
         query = self.search_entry.get().strip()
-        
         if not query:
-            # Purple-style validation feedback
-            self.search_entry.configure(border_color="#E22134")  # Red error
-            self.after(2500, lambda: self.search_entry.configure(border_color="#535353"))
             return
         
-        logger.info(f"Performing search for: {query}")
+        # Get price range
+        min_price = self.min_price_entry.get().strip()
+        max_price = self.max_price_entry.get().strip()
         
-        # Purple-style loading state
+        # Get selected sites
+        selected_sites = [
+            site_id for site_id, var in self.site_vars.items()
+            if var.get()
+        ]
+        
+        if not selected_sites:
+            return
+        
+        # Update UI to show loading state
         self.search_button.configure(
             text="⟳  検索中...",
             state="disabled",
-            fg_color="#535353"  # Disabled gray
+            fg_color="#535353"
         )
         
-        # Success feedback
-        def complete_search():
-            self.search_button.configure(
-                text="✓  検索完了",
-                fg_color="#8B5CF6",
-                state="normal"
-            )
-            # Reset button
-            self.after(1500, lambda: self.search_button.configure(
-                text="🔍  検索実行",
-                fg_color="#8B5CF6"
-            ))
+        # Clear existing results
+        for widget in self.results_frame.winfo_children():
+            widget.destroy()
         
-        # Simulate search delay
-        self.after(1200, complete_search) 
+        # Run search in a separate thread
+        def search_thread():
+            try:
+                # Clear database
+                self.db.clear_all_items()
+                
+                # Run scrapers for selected sites
+                for site_id in selected_sites:
+                    scraper = self.available_scrapers[site_id]
+                    items = scraper.search(
+                        query=query,
+                        min_price=min_price if min_price else None,
+                        max_price=max_price if max_price else None
+                    )
+                    if items:
+                        self.db.insert_items(items)
+                
+                # Get results sorted by price
+                results = get_search_results(
+                    query=query,
+                    site=None,  # Get from all sites
+                    sort_by="price_value",
+                    sort_order="asc"
+                )
+                
+                # Update UI with results
+                self.after(0, lambda: self.display_results(results))
+                
+            except Exception as e:
+                logger.error(f"Search error: {str(e)}")
+                self.after(0, lambda: self.show_error(str(e)))
+            finally:
+                self.after(0, lambda: self.search_button.configure(
+                    text="🔍  検索実行",
+                    state="normal",
+                    fg_color="#8B5CF6"
+                ))
+        
+        # Start search thread
+        threading.Thread(target=search_thread, daemon=True).start()
+    
+    def display_results(self, results: List[Dict[str, Any]]):
+        """Display search results in a grid."""
+        if not results:
+            # Show no results message
+            no_results = ctk.CTkLabel(
+                self.results_frame,
+                text="検索結果が見つかりませんでした",
+                font=ctk.CTkFont(size=16),
+                text_color="#B3B3B3"
+            )
+            no_results.grid(row=0, column=0, columnspan=4, pady=50)
+            return
+        
+        # Display results in a grid
+        for i, item in enumerate(results):
+            row = i // 4
+            col = i % 4
+            
+            # Create product card
+            card = ProductCard(self.results_frame, {
+                'title': item['title'],
+                'source': item['site'],
+                'price': f"¥{item['price_value']:,}",
+                'image_url': item.get('image_url')
+            })
+            card.grid(row=row, column=col, padx=15, pady=15, sticky="ew")
+    
+    def show_error(self, message: str):
+        """Show error message."""
+        error_label = ctk.CTkLabel(
+            self.results_frame,
+            text=f"エラー: {message}",
+            font=ctk.CTkFont(size=16),
+            text_color="#FF4444"
+        )
+        error_label.grid(row=0, column=0, columnspan=4, pady=50)
+
+class ProductCard(ctk.CTkFrame):
+    """Individual product card widget with black and purple design."""
+    
+    def __init__(self, parent, product_data: Dict[str, Any]):
+        super().__init__(
+            parent, 
+            corner_radius=16,
+            fg_color="#282828",
+            border_width=0
+        )
+        
+        self.product_data = product_data
+        self.create_card()
+        
+        # Add hover effect
+        self.bind("<Enter>", self.on_enter)
+        self.bind("<Leave>", self.on_leave)
+        
+        # Bind to all child widgets
+        self.bind_all_children()
+    
+    def bind_all_children(self):
+        """Bind hover events to all child widgets."""
+        def bind_recursive(widget):
+            widget.bind("<Enter>", self.on_enter)
+            widget.bind("<Leave>", self.on_leave)
+            for child in widget.winfo_children():
+                bind_recursive(child)
+        bind_recursive(self)
+    
+    def create_card(self):
+        """Create the product card layout."""
+        # Configure grid
+        self.grid_columnconfigure(0, weight=1)
+        
+        # Product image placeholder
+        self.image_frame = ctk.CTkFrame(
+            self, 
+            height=200, 
+            corner_radius=12,
+            fg_color="#3E3E3E"
+        )
+        self.image_frame.grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 12))
+        self.image_frame.grid_propagate(False)
+        
+        # Image placeholder
+        self.image_label = ctk.CTkLabel(
+            self.image_frame,
+            text="📷",
+            font=ctk.CTkFont(size=56),
+            text_color="#B3B3B3"
+        )
+        self.image_label.place(relx=0.5, rely=0.5, anchor="center")
+        
+        # Content area
+        self.content_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.content_frame.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 16))
+        self.content_frame.grid_columnconfigure(0, weight=1)
+        
+        # Product title
+        title = self.product_data.get('title', 'Product Title')
+        self.title_label = ctk.CTkLabel(
+            self.content_frame,
+            text=title,
+            font=ctk.CTkFont(size=16, weight="bold"),
+            wraplength=220,
+            anchor="w",
+            justify="left",
+            text_color="#FFFFFF"
+        )
+        self.title_label.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        
+        # Source and price layout
+        self.info_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        self.info_frame.grid(row=1, column=0, sticky="ew")
+        self.info_frame.grid_columnconfigure(0, weight=1)
+        
+        # Product source
+        source = self.product_data.get('source', 'Marketplace')
+        self.source_label = ctk.CTkLabel(
+            self.info_frame,
+            text=source,
+            font=ctk.CTkFont(size=12, weight="normal"),
+            text_color="#B3B3B3",
+            anchor="w"
+        )
+        self.source_label.grid(row=0, column=0, sticky="w")
+        
+        # Price
+        price = self.product_data.get('price', '¥---')
+        self.price_label = ctk.CTkLabel(
+            self.info_frame,
+            text=price,
+            font=ctk.CTkFont(size=15, weight="bold"),
+            text_color="#8B5CF6",
+            anchor="e"
+        )
+        self.price_label.grid(row=0, column=1, sticky="e")
+        
+        # Favorite button
+        self.fav_button = ctk.CTkButton(
+            self.content_frame,
+            text="♡",
+            width=30,
+            height=30,
+            corner_radius=15,
+            fg_color="transparent",
+            text_color="#B3B3B3",
+            hover_color="#8B5CF6",
+            font=ctk.CTkFont(size=14)
+        )
+        self.fav_button.grid(row=0, column=1, sticky="ne", padx=(8, 0))
+    
+    def on_enter(self, event):
+        """Hover effect."""
+        self.configure(fg_color="#3E3E3E")
+    
+    def on_leave(self, event):
+        """Reset hover effect."""
+        self.configure(fg_color="#282828") 
