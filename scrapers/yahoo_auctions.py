@@ -80,40 +80,22 @@ class YahooAuctionsScraper:
     
     def search(self, keywords: List[str], min_price: Optional[int] = None, max_price: Optional[int] = None) -> List[Dict[str, Any]]:
         """
-        Search Yahoo Auctions with exact keyword matching and date filtering.
-        
-        Args:
-            keywords: List of keywords that must appear in the title
-            min_price: Optional minimum price filter
-            max_price: Optional maximum price filter
-            
-        Returns:
-            List of dictionaries containing auction data
+        Search Yahoo Auctions for all listings, no time or category restrictions, both auction and set price.
         """
         try:
-            # Respect rate limits
             self._respect_rate_limits()
-            
-            # Construct search parameters
             params = {
-                'p': ' '.join(keywords),  # Space-separated keywords
-                'va': ' '.join(keywords),  # Exact match in title
-                'b': 1,  # Start from first page
-                'n': 100,  # Items per page
-                's1': 'end',  # Sort by end time
-                'o1': 'a',  # Ascending order
+                'p': ' '.join(keywords),
+                'va': ' '.join(keywords),
+                'b': 1,
+                'n': 100,
+                'fixed': 3,  # Both auction and set price
+                's1': 'new'  # Sort by newest listings
             }
-            
-            # Add price filters if provided
             if min_price:
-                params['min'] = min_price
+                params['aucminprice'] = str(min_price)
             if max_price:
-                params['max'] = max_price
-            
-            # Calculate date one month ago
-            one_month_ago = datetime.now() - timedelta(days=30)
-            
-            # Make request with proper headers
+                params['aucmaxprice'] = str(max_price)
             headers = get_request_headers(site_id='yahoo_auctions')
             response = self.session.get(
                 self.BASE_URL,
@@ -123,66 +105,68 @@ class YahooAuctionsScraper:
                 verify=SESSION_CONFIG['verify_ssl']
             )
             response.raise_for_status()
-            
-            # Parse response
+            search_url = response.url
             soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Extract items
             items = []
-            for item in soup.select('.Products__list .Product'):
-                try:
-                    # Get end time
-                    end_time_str = item.select_one('.Product__time').text.strip()
-                    end_time = self._parse_end_time(end_time_str)
-                    
-                    # Skip if older than one month
-                    if end_time < one_month_ago:
+            page = 1
+            while True:
+                for item in soup.select('li.Product'):
+                    try:
+                        title = item.select_one('.Product__title').text.strip()
+                        price_text = item.select_one('.Product__price').text.strip()
+                        price = self._normalize_price(price_text)
+                        url = item.select_one('a')['href']
+                        if not url.startswith('http'):
+                            url = 'https://auctions.yahoo.co.jp' + url
+                        img = item.select_one('img')
+                        image_url = img['src'] if img else None
+                        bid_count = 0
+                        bid_text = item.select_one('.Product__bid')
+                        if bid_text:
+                            bid_match = re.search(r'(\d+)', bid_text.text)
+                            if bid_match:
+                                bid_count = int(bid_match.group(1))
+                        # Get end time from the search results page
+                        end_time = ''
+                        end_time_elem = item.select_one('.Product__time')
+                        if end_time_elem:
+                            end_time = end_time_elem.text.strip()
+                        # Determine if item is fixed price
+                        is_fixed_price = end_time == ''
+                        item_data = {
+                            'id': url.split('/')[-1],
+                            'title': title,
+                            'price': price,
+                            'url': url,
+                            'image_url': image_url,
+                            'end_time': end_time,
+                            'bid_count': bid_count,
+                            'is_fixed_price': is_fixed_price,
+                            'source': 'Yahoo Auctions',
+                            'timestamp': datetime.now().isoformat()
+                        }
+                        items.append(item_data)
+                    except Exception as e:
+                        logger.error(f"Error parsing item: {e}")
                         continue
-                    
-                    # Get title and check for exact keyword matches
-                    title = item.select_one('.Product__title').text.strip()
-                    if not all(keyword.lower() in title.lower() for keyword in keywords):
-                        continue
-                    
-                    # Extract price
-                    price_text = item.select_one('.Product__price').text.strip()
-                    price = self._normalize_price(price_text)
-                    
-                    # Get auction URL
-                    url = item.select_one('a')['href']
-                    if not url.startswith('http'):
-                        url = 'https://auctions.yahoo.co.jp' + url
-                    
-                    # Get image URL
-                    img = item.select_one('img')
-                    image_url = img['src'] if img else None
-                    
-                    # Get current bid count
-                    bid_count = 0
-                    bid_text = item.select_one('.Product__bid')
-                    if bid_text:
-                        bid_match = re.search(r'(\d+)', bid_text.text)
-                        if bid_match:
-                            bid_count = int(bid_match.group(1))
-                    
-                    item_data = {
-                        'id': url.split('/')[-1],
-                        'title': title,
-                        'price': price,
-                        'url': url,
-                        'image_url': image_url,
-                        'end_time': end_time.isoformat(),
-                        'bid_count': bid_count,
-                        'source': 'Yahoo Auctions',
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    items.append(item_data)
-                    
-                except Exception as e:
-                    logger.error(f"Error parsing item: {e}")
-                    continue
-            
-            return items
+                if not soup.select('li.Product'):
+                    break
+                page += 1
+                params['b'] = (page - 1) * 100 + 1
+                self._respect_rate_limits()
+                response = self.session.get(
+                    self.BASE_URL,
+                    params=params,
+                    headers=headers,
+                    allow_redirects=SESSION_CONFIG['allow_redirects'],
+                    verify=SESSION_CONFIG['verify_ssl']
+                )
+                response.raise_for_status()
+                soup = BeautifulSoup(response.text, 'html.parser')
+            return {
+                'items': items,
+                'search_url': search_url
+            }
             
         except Exception as e:
             logger.error(f"Error in Yahoo Auctions search: {e}")
