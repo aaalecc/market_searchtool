@@ -6,7 +6,7 @@ CustomTkinter interface for searching marketplace sites.
 import customtkinter as ctk
 import logging
 from typing import List, Dict, Any
-from core.database import DatabaseManager, get_search_results, get_database_stats
+from core.database import DatabaseManager, get_search_results, get_database_stats, create_saved_search, add_saved_search_items
 import threading
 import subprocess
 import sys
@@ -15,6 +15,8 @@ from PIL import Image, ImageTk, ImageOps
 import requests
 from io import BytesIO
 from customtkinter import CTkImage
+from CTkMessagebox import CTkMessagebox
+from customtkinter import CTkInputDialog
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +70,8 @@ class SearchTab(ctk.CTkFrame):
             fg_color="transparent"
         )
         self.header_frame.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
-        self.header_frame.grid_columnconfigure(1, weight=1)
+        self.header_frame.grid_columnconfigure(0, weight=1)
+        self.header_frame.grid_columnconfigure(1, weight=0)
         self.header_frame.grid_propagate(False)
         
         # Title with Spotify typography and larger Japanese font
@@ -80,6 +83,21 @@ class SearchTab(ctk.CTkFrame):
             anchor="w"
         )
         self.title_label.grid(row=0, column=0, padx=30, pady=25, sticky="w")
+        
+        # Save Search button (move here)
+        self.save_search_button = ctk.CTkButton(
+            self.header_frame,
+            text="💾 検索を保存",
+            height=36,
+            width=140,
+            corner_radius=18,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color="#22c55e",
+            hover_color="#16a34a",
+            text_color="#FFFFFF",
+            command=self.save_current_search
+        )
+        self.save_search_button.grid(row=0, column=1, padx=(0, 30), pady=(20, 0), sticky="e")
     
     def create_content(self):
         """Create Spotify-style content area."""
@@ -442,6 +460,46 @@ class SearchTab(ctk.CTkFrame):
             text_color="#FF4444"
         )
         error_label.grid(row=0, column=0, columnspan=4, pady=50)
+    
+    def save_current_search(self):
+        """Save the current search options and items to the database as a saved search."""
+        # Gather current search options
+        keywords = self.search_entry.get().strip().split()
+        min_price = self.min_price_entry.get().strip()
+        max_price = self.max_price_entry.get().strip()
+        selected_sites = [site_id for site_id, var in self.site_vars.items() if var.get()]
+        options = {
+            'keywords': keywords,
+            'min_price': min_price,
+            'max_price': max_price,
+            'sites': selected_sites
+        }
+        # Prompt for a name using CTkInputDialog
+        dialog = CTkInputDialog(text="この検索の名前を入力してください:", title="保存名")
+        name = dialog.get_input()
+        if not name:
+            return  # User cancelled or left blank
+        # Save search options with name
+        saved_search_id = create_saved_search(options, name)
+        # Gather all currently displayed items (all pages)
+        all_items = []
+        offset = 0
+        while True:
+            items = get_search_results(limit=self.items_per_page, offset=offset, sort_by="price_value", sort_order="asc")
+            if not items:
+                break
+            all_items.extend(items)
+            if len(items) < self.items_per_page:
+                break
+            offset += self.items_per_page
+        # Save items to saved_search_items
+        add_saved_search_items(saved_search_id, all_items)
+        # Show a confirmation
+        CTkMessagebox(title="保存完了", message="検索とアイテムが保存されました。", icon="check")
+        # Refresh the Saved Searches tab if possible
+        main_window = self.winfo_toplevel()
+        if hasattr(main_window, 'saved_searches_tab'):
+            main_window.saved_searches_tab.display_saved_searches()
 
 class ProductCard(ctk.CTkFrame):
     """Individual product card widget with black and purple design."""

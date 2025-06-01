@@ -15,6 +15,7 @@ from gui.search_tab import SearchTab
 from gui.feed_tab import FeedTab
 from gui.favorites_tab import FavoritesTab
 from gui.settings_tab import SettingsTab
+from gui.saved_searches_tab import SavedSearchesTab
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +185,14 @@ class MainWindow(ctk.CTk):
         )
         self.favorites_button.grid(row=4, column=0, sticky="ew", padx=20, pady=3)
         
+        self.saved_searches_button = ctk.CTkButton(
+            self.sidebar_frame,
+            text="💾  保存検索",
+            command=self.show_saved_searches_tab,
+            **button_style
+        )
+        self.saved_searches_button.grid(row=5, column=0, sticky="ew", padx=20, pady=3)
+        
         # Settings section at bottom with separator
         self.separator = ctk.CTkFrame(self.sidebar_frame, height=1, fg_color="#282828")
         self.separator.grid(row=6, column=0, sticky="ew", padx=30, pady=25)
@@ -241,12 +250,14 @@ class MainWindow(ctk.CTk):
             self.feed_tab = FeedTab(self.content_container)
             self.favorites_tab = FavoritesTab(self.content_container)
             self.settings_tab = SettingsTab(self.content_container, main_window=self)
+            self.saved_searches_tab = SavedSearchesTab(self.content_container)
             
             # Hide all tabs initially
             self.search_tab.grid_remove()
             self.feed_tab.grid_remove()
             self.favorites_tab.grid_remove()
             self.settings_tab.grid_remove()
+            self.saved_searches_tab.grid_remove()
             
             logger.info("All tabs initialized")
             
@@ -298,6 +309,14 @@ class MainWindow(ctk.CTk):
         self.current_tab = "settings"
         logger.info("Showing settings tab")
     
+    def show_saved_searches_tab(self):
+        """Show the saved searches tab."""
+        self.hide_all_tabs()
+        self.saved_searches_tab.grid(row=0, column=0, sticky="nsew")
+        self.update_sidebar_selection("saved_searches")
+        self.current_tab = "saved_searches"
+        logger.info("Showing saved searches tab")
+    
     def hide_all_tabs(self):
         """Hide all tab content."""
         if hasattr(self, 'search_tab'):
@@ -308,11 +327,13 @@ class MainWindow(ctk.CTk):
             self.favorites_tab.grid_remove()
         if hasattr(self, 'settings_tab'):
             self.settings_tab.grid_remove()
+        if hasattr(self, 'saved_searches_tab'):
+            self.saved_searches_tab.grid_remove()
     
     def update_sidebar_selection(self, selected_tab: str):
         """Update sidebar button appearance with purple accent selection."""
         # Reset all buttons to default appearance
-        buttons = [self.feed_button, self.search_button, self.favorites_button, self.settings_button]
+        buttons = [self.feed_button, self.search_button, self.favorites_button, self.saved_searches_button, self.settings_button]
         for button in buttons:
             button.configure(
                 fg_color="transparent",
@@ -332,6 +353,11 @@ class MainWindow(ctk.CTk):
             )
         elif selected_tab == "favorites":
             self.favorites_button.configure(
+                fg_color="#8B5CF6",
+                text_color="#FFFFFF"
+            )
+        elif selected_tab == "saved_searches":
+            self.saved_searches_button.configure(
                 fg_color="#8B5CF6",
                 text_color="#FFFFFF"
             )
@@ -364,6 +390,8 @@ class MainWindow(ctk.CTk):
                 self.show_favorites_tab()
             elif last_tab == 'settings':
                 self.show_settings_tab()
+            elif last_tab == 'saved_searches':
+                self.show_saved_searches_tab()
             else:
                 self.show_feed_tab()
             

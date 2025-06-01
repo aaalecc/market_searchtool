@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from contextlib import contextmanager
+import json
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -50,7 +51,7 @@ class DatabaseManager:
                 conn.close()
     
     def create_tables(self):
-        """Create the search results table."""
+        """Create the search results table and saved search tables."""
         with self.get_connection() as conn:
             # Create table without any UNIQUE constraints
             conn.execute('''
@@ -72,6 +73,32 @@ class DatabaseManager:
                     found_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     is_available BOOLEAN DEFAULT 1
+                )
+            ''')
+            
+            # Create saved_searches table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS saved_searches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    options_json TEXT NOT NULL,
+                    name TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Create saved_search_items table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS saved_search_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    saved_search_id INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    price_value REAL,
+                    url TEXT NOT NULL,
+                    site TEXT NOT NULL,
+                    image_url TEXT,
+                    found_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(saved_search_id, title, price_value),
+                    FOREIGN KEY(saved_search_id) REFERENCES saved_searches(id) ON DELETE CASCADE
                 )
             ''')
             
@@ -224,12 +251,83 @@ class DatabaseManager:
             conn.commit()
     
     def item_exists(self, title: str, price_value: float) -> bool:
+        normalized_title = title.strip().lower()
+        rounded_price = round(price_value, 2) if price_value is not None else None
         with self.get_connection() as conn:
             result = conn.execute(
-                "SELECT 1 FROM search_results WHERE title = ? AND price_value = ? LIMIT 1",
-                (title, price_value)
+                "SELECT 1 FROM search_results WHERE LOWER(TRIM(title)) = ? AND ROUND(price_value, 2) = ? LIMIT 1",
+                (normalized_title, rounded_price)
             ).fetchone()
             return result is not None
+
+    def create_saved_search(self, options: dict, name: str = None) -> int:
+        """Create a new saved search and return its ID."""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                "INSERT INTO saved_searches (options_json, name) VALUES (?, ?)",
+                (json.dumps(options, ensure_ascii=False), name)
+            )
+            conn.commit()
+            logger.info(f"Saved search inserted: name={name}, options={options}, id={cursor.lastrowid}")
+            return cursor.lastrowid
+
+    def add_saved_search_items(self, saved_search_id: int, items: list):
+        """Add items to a saved search, skipping duplicates by title and price_value."""
+        with self.get_connection() as conn:
+            for item in items:
+                try:
+                    conn.execute(
+                        """INSERT OR IGNORE INTO saved_search_items
+                           (saved_search_id, title, price_value, url, site, image_url)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (
+                            saved_search_id,
+                            item['title'],
+                            item.get('price_value'),
+                            item['url'],
+                            item['site'],
+                            item.get('image_url')
+                        )
+                    )
+                except Exception as e:
+                    continue
+            conn.commit()
+
+    def get_saved_searches(self):
+        """Return all saved searches."""
+        with self.get_connection() as conn:
+            rows = conn.execute("SELECT * FROM saved_searches ORDER BY created_at DESC").fetchall()
+            return [dict(row) for row in rows]
+
+    def get_saved_search_items(self, saved_search_id: int):
+        """Get all items for a saved search."""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM saved_search_items WHERE saved_search_id = ?",
+                (saved_search_id,)
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def delete_saved_search(self, saved_search_id: int) -> bool:
+        """
+        Delete a saved search and its associated items.
+        
+        Args:
+            saved_search_id: ID of the saved search to delete
+            
+        Returns:
+            True if deletion was successful, False otherwise
+        """
+        try:
+            with self.get_connection() as conn:
+                # The ON DELETE CASCADE in the saved_search_items table will automatically
+                # delete associated items when the saved search is deleted
+                conn.execute("DELETE FROM saved_searches WHERE id = ?", (saved_search_id,))
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Failed to delete saved search {saved_search_id}: {e}")
+            return False
 
 # Create a global instance for easy access
 db = DatabaseManager()
@@ -251,4 +349,23 @@ def set_setting(key: str, value: Any) -> None:
     return db.set_setting(key, value)
 
 def item_exists(title: str, price_value: float) -> bool:
-    return db.item_exists(title, price_value) 
+    normalized_title = title.strip().lower()
+    rounded_price = round(price_value, 2) if price_value is not None else None
+    return db.item_exists(normalized_title, rounded_price)
+
+def create_saved_search(options, name=None):
+    return db.create_saved_search(options, name)
+
+def add_saved_search_items(saved_search_id, items):
+    return db.add_saved_search_items(saved_search_id, items)
+
+def get_saved_searches():
+    return db.get_saved_searches()
+
+def get_saved_search_items(saved_search_id):
+    """Get all items for a saved search."""
+    return db.get_saved_search_items(saved_search_id)
+
+def delete_saved_search(saved_search_id: int) -> bool:
+    """Delete a saved search and its associated items."""
+    return db.delete_saved_search(saved_search_id) 
