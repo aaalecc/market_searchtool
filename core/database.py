@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from contextlib import contextmanager
+import json
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -50,7 +51,7 @@ class DatabaseManager:
                 conn.close()
     
     def create_tables(self):
-        """Create the search results table."""
+        """Create the search results table and saved search tables."""
         with self.get_connection() as conn:
             # Create table without any UNIQUE constraints
             conn.execute('''
@@ -72,6 +73,32 @@ class DatabaseManager:
                     found_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     is_available BOOLEAN DEFAULT 1
+                )
+            ''')
+            
+            # Create saved_searches table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS saved_searches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    options_json TEXT NOT NULL,
+                    name TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Create saved_search_items table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS saved_search_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    saved_search_id INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    price_value REAL,
+                    url TEXT NOT NULL,
+                    site TEXT NOT NULL,
+                    image_url TEXT,
+                    found_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(saved_search_id, title, price_value),
+                    FOREIGN KEY(saved_search_id) REFERENCES saved_searches(id) ON DELETE CASCADE
                 )
             ''')
             
@@ -231,6 +258,53 @@ class DatabaseManager:
             ).fetchone()
             return result is not None
 
+    def create_saved_search(self, options: dict, name: str = None) -> int:
+        """Create a new saved search and return its ID."""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                "INSERT INTO saved_searches (options_json, name) VALUES (?, ?)",
+                (json.dumps(options, ensure_ascii=False), name)
+            )
+            conn.commit()
+            return cursor.lastrowid
+
+    def add_saved_search_items(self, saved_search_id: int, items: list):
+        """Add items to a saved search, skipping duplicates by title and price_value."""
+        with self.get_connection() as conn:
+            for item in items:
+                try:
+                    conn.execute(
+                        """INSERT OR IGNORE INTO saved_search_items
+                           (saved_search_id, title, price_value, url, site, image_url)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (
+                            saved_search_id,
+                            item['title'],
+                            item.get('price_value'),
+                            item['url'],
+                            item['site'],
+                            item.get('image_url')
+                        )
+                    )
+                except Exception as e:
+                    continue
+            conn.commit()
+
+    def get_saved_searches(self):
+        """Return all saved searches."""
+        with self.get_connection() as conn:
+            rows = conn.execute("SELECT * FROM saved_searches ORDER BY created_at DESC").fetchall()
+            return [dict(row) for row in rows]
+
+    def get_saved_search_items(self, saved_search_id: int):
+        """Return all items for a saved search."""
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM saved_search_items WHERE saved_search_id = ? ORDER BY price_value ASC",
+                (saved_search_id,)
+            ).fetchall()
+            return [dict(row) for row in rows]
+
 # Create a global instance for easy access
 db = DatabaseManager()
 
@@ -251,4 +325,16 @@ def set_setting(key: str, value: Any) -> None:
     return db.set_setting(key, value)
 
 def item_exists(title: str, price_value: float) -> bool:
-    return db.item_exists(title, price_value) 
+    return db.item_exists(title, price_value)
+
+def create_saved_search(options, name=None):
+    return db.create_saved_search(options, name)
+
+def add_saved_search_items(saved_search_id, items):
+    return db.add_saved_search_items(saved_search_id, items)
+
+def get_saved_searches():
+    return db.get_saved_searches()
+
+def get_saved_search_items(saved_search_id):
+    return db.get_saved_search_items(saved_search_id) 
