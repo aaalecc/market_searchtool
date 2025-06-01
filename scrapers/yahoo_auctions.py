@@ -52,6 +52,8 @@ class YahooAuctionsScraper:
         self.last_request_time = 0
         self.request_count = 0
         self.request_window_start = time.time()
+        
+        logger.info("Session initialized")
     
     def _respect_rate_limits(self):
         """Implement rate limiting and burst protection."""
@@ -72,8 +74,8 @@ class YahooAuctionsScraper:
         
         # Ensure minimum delay between requests
         time_since_last = current_time - self.last_request_time
-        if time_since_last < 3:  # Minimum 3 seconds between requests
-            time.sleep(3 - time_since_last)
+        if time_since_last < 1:  # Minimum 1 second between requests
+            time.sleep(1 - time_since_last)
         
         self.last_request_time = time.time()
         self.request_count += 1
@@ -82,6 +84,7 @@ class YahooAuctionsScraper:
         """
         Search Yahoo Auctions for all listings, no time or category restrictions, both auction and set price.
         """
+        logger.info("Starting Rakuten/Yahoo search function")
         try:
             self._respect_rate_limits()
             params = {
@@ -156,6 +159,7 @@ class YahooAuctionsScraper:
                     except Exception as e:
                         logger.error(f"Error parsing item: {e}")
                         continue
+                logger.info(f"Yahoo Auctions: Page {page} - {len(items)} items scraped so far")
                 if not soup.select('li.Product'):
                     break
                 page += 1

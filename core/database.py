@@ -251,10 +251,12 @@ class DatabaseManager:
             conn.commit()
     
     def item_exists(self, title: str, price_value: float) -> bool:
+        normalized_title = title.strip().lower()
+        rounded_price = round(price_value, 2) if price_value is not None else None
         with self.get_connection() as conn:
             result = conn.execute(
-                "SELECT 1 FROM search_results WHERE title = ? AND price_value = ? LIMIT 1",
-                (title, price_value)
+                "SELECT 1 FROM search_results WHERE LOWER(TRIM(title)) = ? AND ROUND(price_value, 2) = ? LIMIT 1",
+                (normalized_title, rounded_price)
             ).fetchone()
             return result is not None
 
@@ -297,13 +299,34 @@ class DatabaseManager:
             return [dict(row) for row in rows]
 
     def get_saved_search_items(self, saved_search_id: int):
-        """Return all items for a saved search."""
+        """Get all items for a saved search."""
         with self.get_connection() as conn:
-            rows = conn.execute(
-                "SELECT * FROM saved_search_items WHERE saved_search_id = ? ORDER BY price_value ASC",
+            cursor = conn.execute(
+                "SELECT * FROM saved_search_items WHERE saved_search_id = ?",
                 (saved_search_id,)
-            ).fetchall()
-            return [dict(row) for row in rows]
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def delete_saved_search(self, saved_search_id: int) -> bool:
+        """
+        Delete a saved search and its associated items.
+        
+        Args:
+            saved_search_id: ID of the saved search to delete
+            
+        Returns:
+            True if deletion was successful, False otherwise
+        """
+        try:
+            with self.get_connection() as conn:
+                # The ON DELETE CASCADE in the saved_search_items table will automatically
+                # delete associated items when the saved search is deleted
+                conn.execute("DELETE FROM saved_searches WHERE id = ?", (saved_search_id,))
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Failed to delete saved search {saved_search_id}: {e}")
+            return False
 
 # Create a global instance for easy access
 db = DatabaseManager()
@@ -325,7 +348,9 @@ def set_setting(key: str, value: Any) -> None:
     return db.set_setting(key, value)
 
 def item_exists(title: str, price_value: float) -> bool:
-    return db.item_exists(title, price_value)
+    normalized_title = title.strip().lower()
+    rounded_price = round(price_value, 2) if price_value is not None else None
+    return db.item_exists(normalized_title, rounded_price)
 
 def create_saved_search(options, name=None):
     return db.create_saved_search(options, name)
@@ -337,4 +362,9 @@ def get_saved_searches():
     return db.get_saved_searches()
 
 def get_saved_search_items(saved_search_id):
-    return db.get_saved_search_items(saved_search_id) 
+    """Get all items for a saved search."""
+    return db.get_saved_search_items(saved_search_id)
+
+def delete_saved_search(saved_search_id: int) -> bool:
+    """Delete a saved search and its associated items."""
+    return db.delete_saved_search(saved_search_id) 
