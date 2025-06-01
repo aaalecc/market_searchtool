@@ -109,8 +109,8 @@ class ProductCard(ctk.CTkFrame):
         self.title_label = ctk.CTkLabel(
             self.content_frame,
             text=title,
-            font=ctk.CTkFont(size=16, weight="bold"),
-            wraplength=220,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            wraplength=180,
             anchor="w",
             justify="left",
             text_color="#FFFFFF"
