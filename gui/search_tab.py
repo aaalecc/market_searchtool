@@ -16,6 +16,7 @@ import requests
 from io import BytesIO
 from customtkinter import CTkImage
 from CTkMessagebox import CTkMessagebox
+from customtkinter import CTkInputDialog
 
 logger = logging.getLogger(__name__)
 
@@ -473,8 +474,13 @@ class SearchTab(ctk.CTkFrame):
             'max_price': max_price,
             'sites': selected_sites
         }
-        # Save search options
-        saved_search_id = create_saved_search(options)
+        # Prompt for a name using CTkInputDialog
+        dialog = CTkInputDialog(text="この検索の名前を入力してください:", title="保存名")
+        name = dialog.get_input()
+        if not name:
+            return  # User cancelled or left blank
+        # Save search options with name
+        saved_search_id = create_saved_search(options, name)
         # Gather all currently displayed items (all pages)
         all_items = []
         offset = 0
@@ -488,7 +494,7 @@ class SearchTab(ctk.CTkFrame):
             offset += self.items_per_page
         # Save items to saved_search_items
         add_saved_search_items(saved_search_id, all_items)
-        # Optionally, show a confirmation
+        # Show a confirmation
         CTkMessagebox(title="保存完了", message="検索とアイテムが保存されました。", icon="check")
 
 class ProductCard(ctk.CTkFrame):
