@@ -10,6 +10,11 @@ from core.database import DatabaseManager, get_search_results, get_database_stat
 import threading
 import subprocess
 import sys
+import os
+from PIL import Image, ImageTk, ImageOps
+import requests
+from io import BytesIO
+from customtkinter import CTkImage
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +29,9 @@ class SearchTab(ctk.CTkFrame):
         
         # Configure layout
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=0)  # Header
+        self.grid_rowconfigure(1, weight=0)  # Search box (smaller)
+        self.grid_rowconfigure(2, weight=1)  # Product/results area (bigger)
         
         # Initialize database manager
         self.db = DatabaseManager()
@@ -34,6 +41,10 @@ class SearchTab(ctk.CTkFrame):
             'yahoo': {'name': 'Yahoo Auctions'},
             'rakuten': {'name': 'Rakuten'}
         }
+        
+        # Initialize pagination state
+        self.current_page = 1
+        self.items_per_page = 40  # 4 columns x 10 rows
         
         # Create the interface
         self.create_widgets()
@@ -77,134 +88,98 @@ class SearchTab(ctk.CTkFrame):
             self,
             fg_color="transparent"
         )
-        self.content_frame.grid(row=1, column=0, sticky="nsew", padx=30, pady=(0, 30))
+        self.content_frame.grid(row=2, column=0, sticky="nsew", padx=30, pady=(0, 20))
         self.content_frame.grid_columnconfigure(0, weight=1)
-        self.content_frame.grid_rowconfigure(1, weight=1)
+        self.content_frame.grid_rowconfigure(0, weight=0)  # Search box
+        self.content_frame.grid_rowconfigure(1, weight=1)  # Results area
         
         # Search container
         self.search_container = ctk.CTkFrame(
             self.content_frame,
-            corner_radius=20,
+            corner_radius=16,
             fg_color="#282828",
-            border_width=0
+            border_width=0,
+            height=70
         )
-        self.search_container.grid(row=0, column=0, sticky="ew", pady=(0, 25))
+        self.search_container.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        self.search_container.grid_propagate(False)
+        self.search_container.grid_columnconfigure(0, weight=1)
         
-        # Search form
+        # Horizontal search form
         self.form_frame = ctk.CTkFrame(self.search_container, fg_color="transparent")
-        self.form_frame.grid(row=0, column=0, sticky="ew", padx=30, pady=25)
-        self.form_frame.grid_columnconfigure(1, weight=1)
-        
-        # Search label
-        search_label = ctk.CTkLabel(
-            self.form_frame,
-            text="検索キーワード",
-            font=ctk.CTkFont(size=18, weight="bold"),
-            text_color="#FFFFFF"
-        )
-        search_label.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 15))
+        self.form_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        for i in range(7):
+            self.form_frame.grid_columnconfigure(i, weight=0)
+        self.form_frame.grid_columnconfigure(0, weight=1)
         
         # Search entry
         self.search_entry = ctk.CTkEntry(
             self.form_frame,
             placeholder_text="検索したい商品名を入力してください...",
-            height=50,
-            width=500,
-            corner_radius=25,
-            font=ctk.CTkFont(size=16),
+            height=40,
+            width=320,
+            corner_radius=20,
+            font=ctk.CTkFont(size=15),
             border_width=2,
             border_color="#535353",
             fg_color="#121212",
             text_color="#FFFFFF",
             placeholder_text_color="#B3B3B3"
         )
-        self.search_entry.grid(row=1, column=0, columnspan=2, sticky="ew", padx=(0, 20), pady=(0, 0))
+        self.search_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
+        
+        # Min price
+        self.min_price_entry = ctk.CTkEntry(
+            self.form_frame,
+            placeholder_text="最低価格",
+            width=80,
+            height=40,
+            corner_radius=15,
+            font=ctk.CTkFont(size=14),
+            border_width=2,
+            border_color="#535353",
+            fg_color="#121212",
+            text_color="#FFFFFF"
+        )
+        self.min_price_entry.grid(row=0, column=1, padx=(0, 5))
+        
+        # Max price
+        self.max_price_entry = ctk.CTkEntry(
+            self.form_frame,
+            placeholder_text="最高価格",
+            width=80,
+            height=40,
+            corner_radius=15,
+            font=ctk.CTkFont(size=14),
+            border_width=2,
+            border_color="#535353",
+            fg_color="#121212",
+            text_color="#FFFFFF"
+        )
+        self.max_price_entry.grid(row=0, column=2, padx=(0, 10))
         
         # Search button
         self.search_button = ctk.CTkButton(
             self.form_frame,
             text="🔍  検索実行",
-            height=50,
-            width=150,
-            corner_radius=25,
-            font=ctk.CTkFont(size=16, weight="bold"),
+            height=40,
+            width=120,
+            corner_radius=20,
+            font=ctk.CTkFont(size=15, weight="bold"),
             fg_color="#8B5CF6",
             hover_color="#A78BFA",
             text_color="#FFFFFF",
             command=self.perform_search
         )
-        self.search_button.grid(row=1, column=2, sticky="e")
+        self.search_button.grid(row=0, column=3, padx=(0, 10))
         
-        # Price range frame
-        self.price_frame = ctk.CTkFrame(self.form_frame, fg_color="transparent")
-        self.price_frame.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(15, 0))
-        
-        # Min price
-        min_price_label = ctk.CTkLabel(
-            self.price_frame,
-            text="最低価格:",
-            font=ctk.CTkFont(size=14),
-            text_color="#FFFFFF"
-        )
-        min_price_label.grid(row=0, column=0, padx=(0, 10))
-        
-        self.min_price_entry = ctk.CTkEntry(
-            self.price_frame,
-            placeholder_text="¥",
-            width=120,
-            height=35,
-            corner_radius=17,
-            font=ctk.CTkFont(size=14),
-            border_width=2,
-            border_color="#535353",
-            fg_color="#121212",
-            text_color="#FFFFFF"
-        )
-        self.min_price_entry.grid(row=0, column=1, padx=(0, 20))
-        
-        # Max price
-        max_price_label = ctk.CTkLabel(
-            self.price_frame,
-            text="最高価格:",
-            font=ctk.CTkFont(size=14),
-            text_color="#FFFFFF"
-        )
-        max_price_label.grid(row=0, column=2, padx=(0, 10))
-        
-        self.max_price_entry = ctk.CTkEntry(
-            self.price_frame,
-            placeholder_text="¥",
-            width=120,
-            height=35,
-            corner_radius=17,
-            font=ctk.CTkFont(size=14),
-            border_width=2,
-            border_color="#535353",
-            fg_color="#121212",
-            text_color="#FFFFFF"
-        )
-        self.max_price_entry.grid(row=0, column=3)
-        
-        # Site selection frame
-        self.sites_frame = ctk.CTkFrame(self.form_frame, fg_color="transparent")
-        self.sites_frame.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(15, 0))
-        
-        # Site selection label
-        sites_label = ctk.CTkLabel(
-            self.sites_frame,
-            text="検索サイト:",
-            font=ctk.CTkFont(size=14),
-            text_color="#FFFFFF"
-        )
-        sites_label.grid(row=0, column=0, padx=(0, 10))
-        
-        # Site checkboxes
+        # Site selection checkboxes (horizontal)
         self.site_vars = {}
         for i, (site_id, scraper) in enumerate(self.available_sites.items()):
             var = ctk.BooleanVar(value=True)
             self.site_vars[site_id] = var
             checkbox = ctk.CTkCheckBox(
-                self.sites_frame,
+                self.form_frame,
                 text=scraper['name'],
                 variable=var,
                 font=ctk.CTkFont(size=14),
@@ -213,7 +188,7 @@ class SearchTab(ctk.CTkFrame):
                 hover_color="#A78BFA",
                 border_color="#535353"
             )
-            checkbox.grid(row=0, column=i+1, padx=10)
+            checkbox.grid(row=0, column=4+i, padx=5)
         
         # Results container
         self.results_container = ctk.CTkFrame(
@@ -261,8 +236,11 @@ class SearchTab(ctk.CTkFrame):
         
         def search_thread():
             try:
-                # Build command arguments
-                cmd = [sys.executable, "test_scraper.py"]
+                # Get the root directory path
+                root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                
+                # Build command arguments with full path
+                cmd = [sys.executable, os.path.join(root_dir, "test_scraper.py")]
                 
                 # Add sites
                 cmd.extend(["--sites"] + selected_sites)
@@ -276,12 +254,28 @@ class SearchTab(ctk.CTkFrame):
                 # Add keywords
                 cmd.extend(["--keywords"] + query.split())
                 
-                # Run the scraper
-                process = subprocess.run(cmd, capture_output=True, text=True)
+                # Print command for debugging
+                print("Running command:", " ".join(cmd))
+                
+                # Run the scraper with both stdout and stderr
+                process = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    cwd=root_dir,  # Set working directory to root
+                    env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}  # Force UTF-8 encoding
+                )
+                
+                # Print output for debugging
+                print("Command output:", process.stdout)
+                if process.stderr:
+                    print("Command errors:", process.stderr)
                 
                 if process.returncode == 0:
                     # Get database stats
                     stats = get_database_stats()
+                    print("Database stats:", stats)  # Debug print
                     
                     # Update UI with results
                     self.after(0, lambda: self.display_search_results(stats))
@@ -291,6 +285,7 @@ class SearchTab(ctk.CTkFrame):
             
             except Exception as e:
                 error_msg = f"Error during search: {str(e)}"
+                print("Exception:", error_msg)  # Debug print
                 self.after(0, lambda: self.show_error(error_msg))
             
             finally:
@@ -304,7 +299,7 @@ class SearchTab(ctk.CTkFrame):
         threading.Thread(target=search_thread, daemon=True).start()
     
     def display_search_results(self, stats: Dict[str, int]):
-        """Display search results statistics."""
+        """Display search results statistics and items in a grid layout."""
         # Clear previous results
         for widget in self.results_frame.winfo_children():
             widget.destroy()
@@ -342,7 +337,101 @@ class SearchTab(ctk.CTkFrame):
             font=ctk.CTkFont(size=16),
             text_color="#FFFFFF"
         )
-        rakuten_label.grid(row=3, column=0, columnspan=4, sticky="w")
+        rakuten_label.grid(row=3, column=0, columnspan=4, sticky="w", pady=(0, 20))
+        
+        # Calculate offset for current page
+        offset = (self.current_page - 1) * self.items_per_page
+        
+        # Get search results from database
+        results = get_search_results(limit=self.items_per_page, offset=offset)
+        
+        if not results:
+            no_results = ctk.CTkLabel(
+                self.results_frame,
+                text="検索結果が見つかりませんでした",
+                font=ctk.CTkFont(size=16),
+                text_color="#B3B3B3"
+            )
+            no_results.grid(row=4, column=0, columnspan=4, pady=50)
+            return
+        
+        # Display items in a grid (4 items per row)
+        for i, item in enumerate(results):
+            row = (i // 4) + 4  # Start from row 4 (after stats)
+            col = i % 4
+            
+            # Create product card
+            card = ProductCard(self.results_frame, {
+                'title': item['title'],
+                'source': item['site'],
+                'price': item['price_formatted'],
+                'image_url': item.get('image_url')
+            })
+            card.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+        
+        # Add pagination if there are more than 40 items
+        if stats['total_items'] > self.items_per_page:
+            self.create_pagination(stats['total_items'])
+    
+    def create_pagination(self, total_items: int):
+        """Create pagination controls."""
+        total_pages = (total_items + self.items_per_page - 1) // self.items_per_page
+        
+        # Create pagination frame
+        pagination_frame = ctk.CTkFrame(self.results_frame, fg_color="transparent")
+        pagination_frame.grid(row=1000, column=0, columnspan=4, sticky="ew", pady=20)
+        
+        # Previous page button
+        prev_button = ctk.CTkButton(
+            pagination_frame,
+            text="← 前へ",
+            width=100,
+            height=35,
+            corner_radius=17,
+            fg_color="#8B5CF6",
+            hover_color="#A78BFA",
+            text_color="#FFFFFF",
+            command=lambda: self.change_page(self.current_page - 1),
+            state="disabled" if self.current_page == 1 else "normal"
+        )
+        prev_button.pack(side="left", padx=10)
+        
+        # Page indicator
+        page_label = ctk.CTkLabel(
+            pagination_frame,
+            text=f"ページ {self.current_page} / {total_pages}",
+            font=ctk.CTkFont(size=14),
+            text_color="#FFFFFF"
+        )
+        page_label.pack(side="left", padx=20)
+        
+        # Next page button
+        next_button = ctk.CTkButton(
+            pagination_frame,
+            text="次へ →",
+            width=100,
+            height=35,
+            corner_radius=17,
+            fg_color="#8B5CF6",
+            hover_color="#A78BFA",
+            text_color="#FFFFFF",
+            command=lambda: self.change_page(self.current_page + 1),
+            state="disabled" if self.current_page == total_pages else "normal"
+        )
+        next_button.pack(side="left", padx=10)
+    
+    def change_page(self, new_page: int):
+        """Change the current page of results."""
+        if new_page < 1:
+            return
+            
+        self.current_page = new_page
+        
+        # Get updated stats
+        stats = get_database_stats()
+        
+        # Redisplay results with new page
+        self.display_search_results(stats)
     
     def show_error(self, message: str):
         """Show error message."""
@@ -386,12 +475,23 @@ class ProductCard(ctk.CTkFrame):
     
     def create_card(self):
         """Create the product card layout."""
-        # Configure grid
+        # Configure grid for the card itself
+        self.grid_rowconfigure(0, weight=1)  # Content area
+        self.grid_rowconfigure(1, weight=0)  # Price/footer
         self.grid_columnconfigure(0, weight=1)
         
-        # Product image placeholder
+        # Content frame (image, title, source, spacer)
+        self.content_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.content_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=(0, 0))
+        self.content_frame.grid_columnconfigure(0, weight=1)
+        self.content_frame.grid_rowconfigure(0, weight=0)  # image
+        self.content_frame.grid_rowconfigure(1, weight=0)  # title
+        self.content_frame.grid_rowconfigure(2, weight=0)  # source
+        self.content_frame.grid_rowconfigure(3, weight=1)  # spacer
+        
+        # Product image placeholder or real image
         self.image_frame = ctk.CTkFrame(
-            self, 
+            self.content_frame, 
             height=200, 
             corner_radius=12,
             fg_color="#3E3E3E"
@@ -399,22 +499,43 @@ class ProductCard(ctk.CTkFrame):
         self.image_frame.grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 12))
         self.image_frame.grid_propagate(False)
         
-        # Image placeholder
-        self.image_label = ctk.CTkLabel(
-            self.image_frame,
-            text="📷",
-            font=ctk.CTkFont(size=56),
-            text_color="#B3B3B3"
-        )
+        image_url = self.product_data.get('image_url')
+        if image_url:
+            try:
+                response = requests.get(image_url, timeout=5)
+                img_data = BytesIO(response.content)
+                pil_image = Image.open(img_data).convert("RGBA")
+                target_size = (220, 140)
+                pil_image = ImageOps.contain(pil_image, target_size, method=Image.LANCZOS)
+                background = Image.new("RGBA", target_size, (62, 62, 62, 255))
+                background.paste(pil_image, ((target_size[0] - pil_image.width) // 2, (target_size[1] - pil_image.height) // 2))
+                self.ctk_image = CTkImage(light_image=background, size=target_size)
+                self.image_label = ctk.CTkLabel(
+                    self.image_frame,
+                    image=self.ctk_image,
+                    text=""
+                )
+            except Exception as e:
+                self.image_label = ctk.CTkLabel(
+                    self.image_frame,
+                    text="📷",
+                    font=ctk.CTkFont(size=56),
+                    text_color="#B3B3B3"
+                )
+        else:
+            self.image_label = ctk.CTkLabel(
+                self.image_frame,
+                text="📷",
+                font=ctk.CTkFont(size=56),
+                text_color="#B3B3B3"
+            )
         self.image_label.place(relx=0.5, rely=0.5, anchor="center")
         
-        # Content area
-        self.content_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.content_frame.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 16))
-        self.content_frame.grid_columnconfigure(0, weight=1)
-        
-        # Product title
+        # Product title (truncate if too long)
         title = self.product_data.get('title', 'Product Title')
+        max_chars = 60
+        if len(title) > max_chars:
+            title = title[:max_chars-3] + '...'
         self.title_label = ctk.CTkLabel(
             self.content_frame,
             text=title,
@@ -424,48 +545,33 @@ class ProductCard(ctk.CTkFrame):
             justify="left",
             text_color="#FFFFFF"
         )
-        self.title_label.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        
-        # Source and price layout
-        self.info_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
-        self.info_frame.grid(row=1, column=0, sticky="ew")
-        self.info_frame.grid_columnconfigure(0, weight=1)
+        self.title_label.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         
         # Product source
         source = self.product_data.get('source', 'Marketplace')
         self.source_label = ctk.CTkLabel(
-            self.info_frame,
+            self.content_frame,
             text=source,
             font=ctk.CTkFont(size=12, weight="normal"),
             text_color="#B3B3B3",
             anchor="w"
         )
-        self.source_label.grid(row=0, column=0, sticky="w")
+        self.source_label.grid(row=2, column=0, sticky="w")
         
-        # Price
+        # Spacer to fill space above price
+        self.spacer = ctk.CTkLabel(self.content_frame, text="", font=ctk.CTkFont(size=1))
+        self.spacer.grid(row=3, column=0, sticky="nswe")
+        
+        # Price at the bottom/footer of the card
         price = self.product_data.get('price', '¥---')
         self.price_label = ctk.CTkLabel(
-            self.info_frame,
+            self,
             text=price,
             font=ctk.CTkFont(size=15, weight="bold"),
             text_color="#8B5CF6",
             anchor="e"
         )
-        self.price_label.grid(row=0, column=1, sticky="e")
-        
-        # Favorite button
-        self.fav_button = ctk.CTkButton(
-            self.content_frame,
-            text="♡",
-            width=30,
-            height=30,
-            corner_radius=15,
-            fg_color="transparent",
-            text_color="#B3B3B3",
-            hover_color="#8B5CF6",
-            font=ctk.CTkFont(size=14)
-        )
-        self.fav_button.grid(row=0, column=1, sticky="ne", padx=(8, 0))
+        self.price_label.grid(row=1, column=0, sticky="sew", pady=(0, 8), padx=0)
     
     def on_enter(self, event):
         """Hover effect."""

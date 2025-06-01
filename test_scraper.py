@@ -9,6 +9,10 @@ import argparse
 from core.database import insert_items, get_database_stats
 import subprocess
 import sys
+import time
+from PIL import Image, ImageTk
+import requests
+from io import BytesIO
 
 # Setup logging
 logging.basicConfig(
@@ -24,14 +28,30 @@ def main():
     # Clear database before starting
     print("Clearing database...")
     try:
-        subprocess.run([sys.executable, "clear_database.py"], check=True)
+        # Run clear_database.py and wait for it to complete
+        process = subprocess.run(
+            [sys.executable, "clear_database.py"],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        print(process.stdout)  # Print any output from clear_database.py
+        if process.stderr:
+            print("Warnings/Errors:", process.stderr)
         print("Database cleared successfully.")
     except subprocess.CalledProcessError as e:
         print(f"Error clearing database: {e}")
+        if e.stdout:
+            print("Output:", e.stdout)
+        if e.stderr:
+            print("Errors:", e.stderr)
         return
     except Exception as e:
         print(f"Unexpected error while clearing database: {e}")
         return
+
+    # Add a small delay to ensure database operations are complete
+    time.sleep(1)
 
     parser = argparse.ArgumentParser(description="Test script for market scrapers.")
     parser.add_argument('--sites', nargs='+', choices=['yahoo', 'rakuten'], required=True, help='Sites to scrape (yahoo, rakuten)')

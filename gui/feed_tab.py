@@ -5,8 +5,11 @@ CustomTkinter interface for monitoring new listings with a modern grid layout.
 
 import customtkinter as ctk
 import logging
-from PIL import Image
+from PIL import Image, ImageTk, ImageOps
+import requests
+from io import BytesIO
 from typing import List, Dict, Any
+from customtkinter import CTkImage
 
 logger = logging.getLogger(__name__)
 
@@ -42,86 +45,103 @@ class ProductCard(ctk.CTkFrame):
     
     def create_card(self):
         """Create the product card layout with Spotify-style design."""
-        # Configure grid
+        # Configure grid for the card itself
+        self.grid_rowconfigure(0, weight=1)  # Content area
+        self.grid_rowconfigure(1, weight=0)  # Price/footer
         self.grid_columnconfigure(0, weight=1)
         
-        # Product image placeholder with Spotify styling
+        # Content frame (image, title, source, spacer)
+        self.content_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.content_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=(0, 0))
+        self.content_frame.grid_columnconfigure(0, weight=1)
+        self.content_frame.grid_rowconfigure(0, weight=0)  # image
+        self.content_frame.grid_rowconfigure(1, weight=0)  # title
+        self.content_frame.grid_rowconfigure(2, weight=0)  # source
+        self.content_frame.grid_rowconfigure(3, weight=1)  # spacer
+        
+        # Product image placeholder or real image
         self.image_frame = ctk.CTkFrame(
-            self, 
+            self.content_frame, 
             height=200, 
             corner_radius=12,
-            fg_color="#3E3E3E"  # Darker gray for image area
+            fg_color="#3E3E3E"
         )
         self.image_frame.grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 12))
         self.image_frame.grid_propagate(False)
         
-        # Image placeholder with better styling
-        self.image_label = ctk.CTkLabel(
-            self.image_frame,
-            text="📷",
-            font=ctk.CTkFont(size=56),
-            text_color="#B3B3B3"  # Spotify's secondary text
-        )
+        image_url = self.product_data.get('image_url')
+        if image_url:
+            try:
+                response = requests.get(image_url, timeout=5)
+                img_data = BytesIO(response.content)
+                pil_image = Image.open(img_data).convert("RGBA")
+                target_size = (220, 140)
+                pil_image = ImageOps.contain(pil_image, target_size, method=Image.LANCZOS)
+                background = Image.new("RGBA", target_size, (62, 62, 62, 255))
+                background.paste(pil_image, ((target_size[0] - pil_image.width) // 2, (target_size[1] - pil_image.height) // 2))
+                self.ctk_image = CTkImage(light_image=background, size=target_size)
+                self.image_label = ctk.CTkLabel(
+                    self.image_frame,
+                    image=self.ctk_image,
+                    text=""
+                )
+            except Exception as e:
+                self.image_label = ctk.CTkLabel(
+                    self.image_frame,
+                    text="📷",
+                    font=ctk.CTkFont(size=56),
+                    text_color="#B3B3B3"
+                )
+        else:
+            self.image_label = ctk.CTkLabel(
+                self.image_frame,
+                text="📷",
+                font=ctk.CTkFont(size=56),
+                text_color="#B3B3B3"
+            )
         self.image_label.place(relx=0.5, rely=0.5, anchor="center")
         
-        # Content area with better spacing
-        self.content_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.content_frame.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 16))
-        self.content_frame.grid_columnconfigure(0, weight=1)
-        
-        # Product title with larger, more readable Japanese font
+        # Product title (truncate if too long)
         title = self.product_data.get('title', 'Product Title')
+        max_chars = 60
+        if len(title) > max_chars:
+            title = title[:max_chars-3] + '...'
         self.title_label = ctk.CTkLabel(
             self.content_frame,
             text=title,
-            font=ctk.CTkFont(size=16, weight="bold"),  # Larger font
+            font=ctk.CTkFont(size=16, weight="bold"),
             wraplength=220,
             anchor="w",
             justify="left",
-            text_color="#FFFFFF"  # Pure white for maximum readability
+            text_color="#FFFFFF"
         )
-        self.title_label.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        self.title_label.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         
-        # Source and price layout
-        self.info_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
-        self.info_frame.grid(row=1, column=0, sticky="ew")
-        self.info_frame.grid_columnconfigure(0, weight=1)
-        
-        # Product source with Spotify-style badge
+        # Product source
         source = self.product_data.get('source', 'Marketplace')
         self.source_label = ctk.CTkLabel(
-            self.info_frame,
+            self.content_frame,
             text=source,
             font=ctk.CTkFont(size=12, weight="normal"),
-            text_color="#B3B3B3",  # Spotify secondary text
+            text_color="#B3B3B3",
             anchor="w"
         )
-        self.source_label.grid(row=0, column=0, sticky="w")
+        self.source_label.grid(row=2, column=0, sticky="w")
         
-        # Price with purple accent
+        # Spacer to fill space above price
+        self.spacer = ctk.CTkLabel(self.content_frame, text="", font=ctk.CTkFont(size=1))
+        self.spacer.grid(row=3, column=0, sticky="nswe")
+        
+        # Price at the bottom/footer of the card
         price = self.product_data.get('price', '¥---')
         self.price_label = ctk.CTkLabel(
-            self.info_frame,
+            self,
             text=price,
-            font=ctk.CTkFont(size=15, weight="bold"),  # Larger font
-            text_color="#8B5CF6",  # Purple accent
+            font=ctk.CTkFont(size=15, weight="bold"),
+            text_color="#8B5CF6",
             anchor="e"
         )
-        self.price_label.grid(row=0, column=1, sticky="e")
-        
-        # Add subtle favorite button
-        self.fav_button = ctk.CTkButton(
-            self.content_frame,
-            text="♡",
-            width=30,
-            height=30,
-            corner_radius=15,
-            fg_color="transparent",
-            text_color="#B3B3B3",
-            hover_color="#8B5CF6",
-            font=ctk.CTkFont(size=14)
-        )
-        self.fav_button.grid(row=0, column=1, sticky="ne", padx=(8, 0))
+        self.price_label.grid(row=1, column=0, sticky="sew", pady=(0, 8), padx=0)
     
     def on_enter(self, event):
         """Spotify-style hover effect."""
