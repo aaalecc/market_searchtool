@@ -343,7 +343,7 @@ class SearchTab(ctk.CTkFrame):
         offset = (self.current_page - 1) * self.items_per_page
         
         # Get search results from database
-        results = get_search_results(limit=self.items_per_page, offset=offset)
+        results = get_search_results(limit=self.items_per_page, offset=offset, sort_by="price_value", sort_order="asc")
         
         if not results:
             no_results = ctk.CTkLabel(

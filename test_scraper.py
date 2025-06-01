@@ -6,7 +6,7 @@ from datetime import datetime
 from scrapers.yahoo_auctions import YahooAuctionsScraper
 import logging
 import argparse
-from core.database import insert_items, get_database_stats
+from core.database import insert_items, get_database_stats, item_exists
 import subprocess
 import sys
 import time
@@ -103,7 +103,9 @@ def main():
                         'condition': None,
                         'shipping_info': '{}'
                     }
-                    db_items.append(db_item)
+                    # Skip if item with same title and price exists
+                    if not item_exists(db_item['title'], db_item['price_value']):
+                        db_items.append(db_item)
                 
                 # Insert items into database
                 inserted_count = insert_items(db_items, search_query=search_query)
@@ -147,7 +149,9 @@ def main():
                         'condition': None,
                         'shipping_info': '{}'
                     }
-                    db_items.append(db_item)
+                    # Skip if item with same title and price exists
+                    if not item_exists(db_item['title'], db_item['price_value']):
+                        db_items.append(db_item)
                 
                 # Insert items into database
                 inserted_count = insert_items(db_items, search_query=search_query)

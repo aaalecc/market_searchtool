@@ -141,16 +141,18 @@ class DatabaseManager:
         return inserted_count
     
     def get_search_results(self, query: str = None, site: str = None, 
-                          limit: int = 50, offset: int = 0) -> List[Dict]:
+                          limit: int = 50, offset: int = 0, sort_by: str = None, sort_order: str = "asc") -> List[Dict]:
         """
-        Get search results with optional filtering.
+        Get search results with optional filtering and sorting.
         
         Args:
             query: Filter by search query
             site: Filter by site
             limit: Maximum number of results
             offset: Number of results to skip
-            
+            sort_by: Column to sort by (e.g., 'price_value')
+            sort_order: 'asc' or 'desc'
+        
         Returns:
             List of search result dictionaries
         """
@@ -166,7 +168,14 @@ class DatabaseManager:
                 sql += " AND site = ?"
                 params.append(site)
             
-            sql += " ORDER BY found_at DESC LIMIT ? OFFSET ?"
+            # Add sorting
+            if sort_by in {"price_value", "found_at", "title", "site"}:
+                order = sort_order.lower() if sort_order and sort_order.lower() in {"asc", "desc"} else "asc"
+                sql += f" ORDER BY {sort_by} {order}"
+            else:
+                sql += " ORDER BY found_at DESC"
+            
+            sql += " LIMIT ? OFFSET ?"
             params.extend([limit, offset])
             
             rows = conn.execute(sql, params).fetchall()
@@ -213,6 +222,14 @@ class DatabaseManager:
                 VALUES (?, ?, CURRENT_TIMESTAMP)
             """, (key, str(value)))
             conn.commit()
+    
+    def item_exists(self, title: str, price_value: float) -> bool:
+        with self.get_connection() as conn:
+            result = conn.execute(
+                "SELECT 1 FROM search_results WHERE title = ? AND price_value = ? LIMIT 1",
+                (title, price_value)
+            ).fetchone()
+            return result is not None
 
 # Create a global instance for easy access
 db = DatabaseManager()
@@ -231,4 +248,7 @@ def get_setting(key: str, default: Any = None) -> Any:
     return db.get_setting(key, default)
 
 def set_setting(key: str, value: Any) -> None:
-    return db.set_setting(key, value) 
+    return db.set_setting(key, value)
+
+def item_exists(title: str, price_value: float) -> bool:
+    return db.item_exists(title, price_value) 
