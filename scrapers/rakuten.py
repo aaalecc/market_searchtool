@@ -75,10 +75,13 @@ class RakutenScraper:
                 's': 4  # Always sort by newest
             }
             if min_price:
-                params['min'] = str(min_price)
+                url = url.rstrip('/') + f'/?min={min_price}'
+                logger.info(f"Rakuten: Setting min price filter: {min_price}")
             if max_price:
-                params['max'] = str(max_price)
+                url = url.rstrip('/') + f'&max={max_price}'
+                logger.info(f"Rakuten: Setting max price filter: {max_price}")
             headers = get_request_headers(site_id='rakuten')
+            logger.info(f"Rakuten: Search URL with params: {url}")
             response = self.session.get(url, params=params, headers=headers, allow_redirects=SESSION_CONFIG['allow_redirects'], verify=SESSION_CONFIG['verify_ssl'])
             response.raise_for_status()
             search_url = response.url

@@ -9,14 +9,6 @@ class SavedSearchesTab(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
         self.create_widgets()
-        
-        # Bind to visibility changes
-        self.bind('<Visibility>', self.on_visibility_change)
-
-    def on_visibility_change(self, event):
-        """Refresh the display when the tab becomes visible."""
-        if str(event) == '<Visibility event Visibility=Unobscured>':
-            self.display_saved_searches()
 
     def create_widgets(self):
         # Header

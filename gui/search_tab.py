@@ -496,6 +496,10 @@ class SearchTab(ctk.CTkFrame):
         add_saved_search_items(saved_search_id, all_items)
         # Show a confirmation
         CTkMessagebox(title="保存完了", message="検索とアイテムが保存されました。", icon="check")
+        # Refresh the Saved Searches tab if possible
+        main_window = self.winfo_toplevel()
+        if hasattr(main_window, 'saved_searches_tab'):
+            main_window.saved_searches_tab.display_saved_searches()
 
 class ProductCard(ctk.CTkFrame):
     """Individual product card widget with black and purple design."""

@@ -268,6 +268,7 @@ class DatabaseManager:
                 (json.dumps(options, ensure_ascii=False), name)
             )
             conn.commit()
+            logger.info(f"Saved search inserted: name={name}, options={options}, id={cursor.lastrowid}")
             return cursor.lastrowid
 
     def add_saved_search_items(self, saved_search_id: int, items: list):
