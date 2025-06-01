@@ -6,9 +6,10 @@ CustomTkinter interface for searching marketplace sites.
 import customtkinter as ctk
 import logging
 from typing import List, Dict, Any
-from core.database import DatabaseManager, get_search_results
-from core.scrapers import get_available_scrapers
+from core.database import DatabaseManager, get_search_results, get_database_stats
 import threading
+import subprocess
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +29,11 @@ class SearchTab(ctk.CTkFrame):
         # Initialize database manager
         self.db = DatabaseManager()
         
-        # Get available scrapers
-        self.available_scrapers = get_available_scrapers()
+        # Define available sites
+        self.available_sites = {
+            'yahoo': {'name': 'Yahoo Auctions'},
+            'rakuten': {'name': 'Rakuten'}
+        }
         
         # Create the interface
         self.create_widgets()
@@ -196,12 +200,12 @@ class SearchTab(ctk.CTkFrame):
         
         # Site checkboxes
         self.site_vars = {}
-        for i, (site_id, scraper) in enumerate(self.available_scrapers.items()):
+        for i, (site_id, scraper) in enumerate(self.available_sites.items()):
             var = ctk.BooleanVar(value=True)
             self.site_vars[site_id] = var
             checkbox = ctk.CTkCheckBox(
                 self.sites_frame,
-                text=scraper.name,
+                text=scraper['name'],
                 variable=var,
                 font=ctk.CTkFont(size=14),
                 text_color="#FFFFFF",
@@ -252,84 +256,93 @@ class SearchTab(ctk.CTkFrame):
         if not selected_sites:
             return
         
-        # Update UI to show loading state
-        self.search_button.configure(
-            text="⟳  検索中...",
-            state="disabled",
-            fg_color="#535353"
-        )
+        # Disable search button during search
+        self.search_button.configure(state="disabled", text="🔍  検索中...")
         
-        # Clear existing results
+        def search_thread():
+            try:
+                # Build command arguments
+                cmd = [sys.executable, "test_scraper.py"]
+                
+                # Add sites
+                cmd.extend(["--sites"] + selected_sites)
+                
+                # Add price range if specified
+                if min_price:
+                    cmd.extend(["--min-price", min_price])
+                if max_price:
+                    cmd.extend(["--max-price", max_price])
+                
+                # Add keywords
+                cmd.extend(["--keywords"] + query.split())
+                
+                # Run the scraper
+                process = subprocess.run(cmd, capture_output=True, text=True)
+                
+                if process.returncode == 0:
+                    # Get database stats
+                    stats = get_database_stats()
+                    
+                    # Update UI with results
+                    self.after(0, lambda: self.display_search_results(stats))
+                else:
+                    error_msg = f"Error running scraper: {process.stderr}"
+                    self.after(0, lambda: self.show_error(error_msg))
+            
+            except Exception as e:
+                error_msg = f"Error during search: {str(e)}"
+                self.after(0, lambda: self.show_error(error_msg))
+            
+            finally:
+                # Re-enable search button
+                self.after(0, lambda: self.search_button.configure(
+                    state="normal",
+                    text="🔍  検索実行"
+                ))
+        
+        # Start search in a separate thread
+        threading.Thread(target=search_thread, daemon=True).start()
+    
+    def display_search_results(self, stats: Dict[str, int]):
+        """Display search results statistics."""
+        # Clear previous results
         for widget in self.results_frame.winfo_children():
             widget.destroy()
         
-        # Run search in a separate thread
-        def search_thread():
-            try:
-                # Clear database
-                self.db.clear_all_items()
-                
-                # Run scrapers for selected sites
-                for site_id in selected_sites:
-                    scraper = self.available_scrapers[site_id]
-                    items = scraper.search(
-                        query=query,
-                        min_price=min_price if min_price else None,
-                        max_price=max_price if max_price else None
-                    )
-                    if items:
-                        self.db.insert_items(items)
-                
-                # Get results sorted by price
-                results = get_search_results(
-                    query=query,
-                    site=None,  # Get from all sites
-                    sort_by="price_value",
-                    sort_order="asc"
-                )
-                
-                # Update UI with results
-                self.after(0, lambda: self.display_results(results))
-                
-            except Exception as e:
-                logger.error(f"Search error: {str(e)}")
-                self.after(0, lambda: self.show_error(str(e)))
-            finally:
-                self.after(0, lambda: self.search_button.configure(
-                    text="🔍  検索実行",
-                    state="normal",
-                    fg_color="#8B5CF6"
-                ))
+        # Create results header
+        header = ctk.CTkLabel(
+            self.results_frame,
+            text="検索結果",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color="#FFFFFF"
+        )
+        header.grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 20))
         
-        # Start search thread
-        threading.Thread(target=search_thread, daemon=True).start()
-    
-    def display_results(self, results: List[Dict[str, Any]]):
-        """Display search results in a grid."""
-        if not results:
-            # Show no results message
-            no_results = ctk.CTkLabel(
-                self.results_frame,
-                text="検索結果が見つかりませんでした",
-                font=ctk.CTkFont(size=16),
-                text_color="#B3B3B3"
-            )
-            no_results.grid(row=0, column=0, columnspan=4, pady=50)
-            return
+        # Display total items
+        total_label = ctk.CTkLabel(
+            self.results_frame,
+            text=f"総アイテム数: {stats['total_items']}",
+            font=ctk.CTkFont(size=18),
+            text_color="#FFFFFF"
+        )
+        total_label.grid(row=1, column=0, columnspan=4, sticky="w", pady=(0, 10))
         
-        # Display results in a grid
-        for i, item in enumerate(results):
-            row = i // 4
-            col = i % 4
-            
-            # Create product card
-            card = ProductCard(self.results_frame, {
-                'title': item['title'],
-                'source': item['site'],
-                'price': f"¥{item['price_value']:,}",
-                'image_url': item.get('image_url')
-            })
-            card.grid(row=row, column=col, padx=15, pady=15, sticky="ew")
+        # Display items by site
+        yahoo_label = ctk.CTkLabel(
+            self.results_frame,
+            text=f"Yahoo Auctions: {stats['yahoo_items']} アイテム",
+            font=ctk.CTkFont(size=16),
+            text_color="#FFFFFF"
+        )
+        yahoo_label.grid(row=2, column=0, columnspan=4, sticky="w", pady=(0, 5))
+        
+        rakuten_label = ctk.CTkLabel(
+            self.results_frame,
+            text=f"Rakuten: {stats['rakuten_items']} アイテム",
+            font=ctk.CTkFont(size=16),
+            text_color="#FFFFFF"
+        )
+        rakuten_label.grid(row=3, column=0, columnspan=4, sticky="w")
     
     def show_error(self, message: str):
         """Show error message."""

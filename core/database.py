@@ -7,7 +7,7 @@ import sqlite3
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from contextlib import contextmanager
 
 # Configure logging
@@ -72,6 +72,15 @@ class DatabaseManager:
                     found_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     is_available BOOLEAN DEFAULT 1
+                )
+            ''')
+            
+            # Create settings table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             
@@ -172,6 +181,38 @@ class DatabaseManager:
                 'rakuten_items': conn.execute("SELECT COUNT(*) FROM search_results WHERE site = 'Rakuten'").fetchone()[0]
             }
             return stats
+    
+    def get_setting(self, key: str, default: Any = None) -> Any:
+        """
+        Get a setting value from the database.
+        
+        Args:
+            key: Setting key
+            default: Default value if setting doesn't exist
+            
+        Returns:
+            Setting value or default
+        """
+        with self.get_connection() as conn:
+            result = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+            if result:
+                return result['value']
+            return default
+    
+    def set_setting(self, key: str, value: Any) -> None:
+        """
+        Set a setting value in the database.
+        
+        Args:
+            key: Setting key
+            value: Setting value
+        """
+        with self.get_connection() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO settings (key, value, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+            """, (key, str(value)))
+            conn.commit()
 
 # Create a global instance for easy access
 db = DatabaseManager()
@@ -185,3 +226,9 @@ def get_search_results(*args, **kwargs):
 
 def get_database_stats():
     return db.get_database_stats() 
+
+def get_setting(key: str, default: Any = None) -> Any:
+    return db.get_setting(key, default)
+
+def set_setting(key: str, value: Any) -> None:
+    return db.set_setting(key, value) 

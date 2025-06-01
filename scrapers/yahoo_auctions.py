@@ -115,6 +115,13 @@ class YahooAuctionsScraper:
                         title = item.select_one('.Product__title').text.strip()
                         price_text = item.select_one('.Product__price').text.strip()
                         price = self._normalize_price(price_text)
+                        
+                        # Skip items that don't match price criteria
+                        if min_price and price < min_price:
+                            continue
+                        if max_price and price > max_price:
+                            continue
+                            
                         url = item.select_one('a')['href']
                         if not url.startswith('http'):
                             url = 'https://auctions.yahoo.co.jp' + url

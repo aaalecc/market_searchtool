@@ -7,6 +7,8 @@ from scrapers.yahoo_auctions import YahooAuctionsScraper
 import logging
 import argparse
 from core.database import insert_items, get_database_stats
+import subprocess
+import sys
 
 # Setup logging
 logging.basicConfig(
@@ -19,14 +21,29 @@ def format_price(price: float) -> str:
     return f"¥{price:,.0f}"
 
 def main():
+    # Clear database before starting
+    print("Clearing database...")
+    try:
+        subprocess.run([sys.executable, "clear_database.py"], check=True)
+        print("Database cleared successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error clearing database: {e}")
+        return
+    except Exception as e:
+        print(f"Unexpected error while clearing database: {e}")
+        return
+
     parser = argparse.ArgumentParser(description="Test script for market scrapers.")
     parser.add_argument('--sites', nargs='+', choices=['yahoo', 'rakuten'], required=True, help='Sites to scrape (yahoo, rakuten)')
+    parser.add_argument('--min-price', type=float, default=0, help='Minimum price in JPY')
+    parser.add_argument('--max-price', type=float, default=1000000, help='Maximum price in JPY')
+    parser.add_argument('--keywords', nargs='+', default=[''], help='Search keywords')
     args = parser.parse_args()
 
-    # Set search parameters directly here
-    keywords = ['ディグダ', 'カード']
-    min_price = 50
-    max_price = 1000
+    # Use command line arguments
+    keywords = args.keywords
+    min_price = args.min_price
+    max_price = args.max_price
     search_query = ' '.join(keywords)
 
     search_options = {

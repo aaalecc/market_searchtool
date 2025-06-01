@@ -118,12 +118,6 @@ def initialize_database():
         # Database is automatically initialized when imported
         stats = db.get_database_stats()
         logger.info(f"Database initialized successfully: {stats}")
-        
-        # Perform cleanup if configured
-        if DATABASE_CONFIG.get('vacuum_interval_days'):
-            logger.info("Performing database maintenance...")
-            db.cleanup_old_data(days=30)  # Clean up old data
-            
         return True
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
