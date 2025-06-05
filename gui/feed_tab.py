@@ -8,6 +8,7 @@ import logging
 from typing import List, Dict, Any
 
 from core.database import get_new_items, get_saved_searches
+from gui.search_tab import ProductCard
 
 logger = logging.getLogger(__name__)
 
@@ -83,18 +84,40 @@ class FeedTab(ctk.CTkFrame):
         item_text_font = ctk.CTkFont(family=self.font_family, size=15)
         button_font = ctk.CTkFont(family=self.font_family, size=14, weight="bold")
 
-        items_to_show = all_items[:10] if initial_display else all_items
+        items_to_show = all_items[:4] if initial_display else all_items[:16]
         item_list_frame = ctk.CTkFrame(parent_frame, fg_color="transparent")
         item_list_frame.pack(anchor="nw", fill="x", pady=(0,5))
 
-        for item in items_to_show:
-            item_label = ctk.CTkLabel(item_list_frame, text=item['title'], font=item_text_font, text_color="#FFFFFF", anchor="w")
-            item_label.pack(anchor="nw", padx=0, pady=2, fill="x")
+        # Configure grid for 4 cards per row
+        item_list_frame.grid_columnconfigure(0, weight=1)
+        item_list_frame.grid_columnconfigure(1, weight=1)
+        item_list_frame.grid_columnconfigure(2, weight=1)
+        item_list_frame.grid_columnconfigure(3, weight=1)
+
+        for i, item in enumerate(items_to_show):
+            # Format price
+            price_value = item.get('price_value', 0)
+            price_formatted = item.get('price_formatted', '')
+            if not price_formatted and price_value:
+                price_formatted = f"¥{price_value:,.0f}"
             
-        if initial_display and len(all_items) > 10:
+            # Prepare product_data for ProductCard
+            product_data = {
+                'title': item.get('title', ''),
+                'image_url': item.get('image_url', None),
+                'price': price_formatted,
+                'source': item.get('site', item.get('source', '')),
+                'url': item.get('url', '')
+            }
+            card = ProductCard(item_list_frame, product_data, font_family=self.font_family)
+            row = i // 4
+            col = i % 4
+            card.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+        
+        if initial_display and len(all_items) > 4:
             expand_button = ctk.CTkButton(parent_frame, text="もっと見る", width=100, font=button_font, command=lambda sf=parent_frame, sn=search_name, ai=all_items: self._display_items_for_search(sf, sn, ai, initial_display=False))
             expand_button.pack(anchor="ne", padx=0, pady=(5, 0))
-        elif not initial_display and len(all_items) > 10:
+        elif not initial_display and len(all_items) > 16:
             show_less_button = ctk.CTkButton(parent_frame, text="少なく表示", width=100, font=button_font, command=lambda sf=parent_frame, sn=search_name, ai=all_items: self._display_items_for_search(sf, sn, ai, initial_display=True))
             show_less_button.pack(anchor="ne", padx=0, pady=(5, 0))
 
