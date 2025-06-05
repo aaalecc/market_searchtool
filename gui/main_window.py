@@ -9,6 +9,7 @@ from typing import Dict, Any
 
 from config.settings import WINDOW_CONFIG, TAB_CONFIG
 from core.database import get_setting, set_setting
+from core.background_tasks import start_background_tasks, stop_background_tasks
 
 # Import tab modules (we'll create these)
 from gui.search_tab import SearchTab
@@ -42,6 +43,9 @@ class MainWindow(ctk.CTk):
         
         # Apply user settings
         self.apply_user_settings()
+        
+        # Start background tasks
+        start_background_tasks()
         
         # Set default tab
         self.show_feed_tab()
@@ -438,6 +442,9 @@ class MainWindow(ctk.CTk):
             
             # Save current window state
             self.apply_user_settings()
+            
+            # Stop background tasks
+            stop_background_tasks()
             
             # Close the application
             self.destroy()

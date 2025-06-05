@@ -103,6 +103,28 @@ class DatabaseManager:
                 )
             ''')
             
+            # Create new_items table for feed
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS new_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    saved_search_id INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    price_value REAL,
+                    currency TEXT DEFAULT 'JPY',
+                    price_formatted TEXT,
+                    url TEXT NOT NULL,
+                    site TEXT NOT NULL,
+                    image_url TEXT,
+                    seller TEXT,
+                    location TEXT,
+                    condition TEXT,
+                    shipping_info TEXT,
+                    found_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_viewed BOOLEAN DEFAULT 0,
+                    FOREIGN KEY(saved_search_id) REFERENCES saved_searches(id) ON DELETE CASCADE
+                )
+            ''')
+            
             # Create settings table
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS settings (
@@ -117,6 +139,8 @@ class DatabaseManager:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_search_results_site ON search_results(site)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_search_results_query ON search_results(search_query)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_search_results_price ON search_results(price_value)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_new_items_saved_search ON new_items(saved_search_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_new_items_found_at ON new_items(found_at)")
             
             # Add notifications_enabled column if it doesn't exist
             try:
@@ -362,6 +386,161 @@ class DatabaseManager:
             logger.error(f"Failed to delete saved search {saved_search_id}: {e}")
             return False
 
+    def add_new_items(self, saved_search_id: int, items: List[Dict[str, Any]]) -> int:
+        """
+        Add new items to the new_items table for the feed.
+        Only adds items that don't already exist in saved_search_items.
+        
+        Args:
+            saved_search_id: ID of the saved search
+            items: List of item dictionaries
+            
+        Returns:
+            Number of new items added
+        """
+        added_count = 0
+        with self.get_connection() as conn:
+            for item in items:
+                try:
+                    # Check if item already exists in saved_search_items
+                    existing = conn.execute(
+                        """SELECT 1 FROM saved_search_items 
+                           WHERE saved_search_id = ? AND title = ? AND price_value = ?""",
+                        (saved_search_id, item['title'], item.get('price_value'))
+                    ).fetchone()
+                    
+                    if not existing:
+                        # Insert into new_items
+                        conn.execute("""
+                            INSERT INTO new_items (
+                                saved_search_id, title, price_value, currency, price_formatted,
+                                url, site, image_url, seller, location, condition, shipping_info
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            saved_search_id,
+                            item['title'],
+                            item.get('price_value'),
+                            item.get('currency', 'JPY'),
+                            item.get('price_formatted'),
+                            item['url'],
+                            item['site'],
+                            item.get('image_url'),
+                            item.get('seller'),
+                            item.get('location'),
+                            item.get('condition'),
+                            item.get('shipping_info', '{}')
+                        ))
+                        added_count += 1
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to add new item {item.get('url')}: {e}")
+                    continue
+            
+            conn.commit()
+        return added_count
+
+    def get_new_items(self, limit: int = 10, offset: int = 0, site: str = None) -> Dict[str, List[Dict]]:
+        """
+        Get new items for the feed, grouped by saved search.
+        
+        Args:
+            limit: Maximum number of items per saved search
+            offset: Number of items to skip per saved search
+            site: Optional site filter
+            
+        Returns:
+            Dictionary mapping saved search names to lists of items
+        """
+        with self.get_connection() as conn:
+            # First, clean up old items
+            self._cleanup_old_items(conn)
+            
+            # Get items grouped by saved search
+            sql = """
+                WITH RankedItems AS (
+                    SELECT 
+                        n.*,
+                        s.name as search_name,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY n.saved_search_id 
+                            ORDER BY n.found_at DESC
+                        ) as row_num
+                    FROM new_items n
+                    JOIN saved_searches s ON n.saved_search_id = s.id
+                    WHERE 1=1
+            """
+            params = []
+            
+            if site:
+                sql += " AND n.site = ?"
+                params.append(site)
+            
+            sql += """
+                )
+                SELECT * FROM RankedItems 
+                WHERE row_num <= ?
+                ORDER BY search_name, found_at DESC
+            """
+            params.append(limit)
+            
+            rows = conn.execute(sql, params).fetchall()
+            
+            # Group items by saved search
+            items_by_search = {}
+            for row in rows:
+                search_name = row['search_name']
+                if search_name not in items_by_search:
+                    items_by_search[search_name] = []
+                items_by_search[search_name].append(dict(row))
+            
+            return items_by_search
+
+    def _cleanup_old_items(self, conn):
+        """Delete items older than the 100th most recent item for each saved search."""
+        conn.execute("""
+            DELETE FROM new_items 
+            WHERE id IN (
+                SELECT id FROM (
+                    SELECT id,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY saved_search_id 
+                               ORDER BY found_at DESC
+                           ) as row_num
+                    FROM new_items
+                ) ranked
+                WHERE row_num > 100
+            )
+        """)
+        conn.commit()
+
+    def get_new_items_count(self, site: str = None) -> Dict[str, int]:
+        """
+        Get count of new items per saved search.
+        
+        Args:
+            site: Optional site filter
+            
+        Returns:
+            Dictionary mapping saved search names to item counts
+        """
+        with self.get_connection() as conn:
+            sql = """
+                SELECT s.name as search_name, COUNT(*) as count
+                FROM new_items n
+                JOIN saved_searches s ON n.saved_search_id = s.id
+                WHERE 1=1
+            """
+            params = []
+            
+            if site:
+                sql += " AND n.site = ?"
+                params.append(site)
+            
+            sql += " GROUP BY s.name"
+            
+            rows = conn.execute(sql, params).fetchall()
+            return {row['search_name']: row['count'] for row in rows}
+
 # Create a global instance for easy access
 db = DatabaseManager()
 
@@ -404,4 +583,16 @@ def get_saved_search_items(saved_search_id):
 
 def delete_saved_search(saved_search_id: int) -> bool:
     """Delete a saved search and its associated items."""
-    return db.delete_saved_search(saved_search_id) 
+    return db.delete_saved_search(saved_search_id)
+
+def add_new_items(saved_search_id: int, items: List[Dict[str, Any]]) -> int:
+    return db.add_new_items(saved_search_id, items)
+
+def get_new_items(limit: int = 10, offset: int = 0, site: str = None) -> Dict[str, List[Dict]]:
+    return db.get_new_items(limit, offset, site)
+
+def mark_items_as_viewed(item_ids: List[int]) -> None:
+    return db.mark_items_as_viewed(item_ids)
+
+def get_new_items_count(site: str = None) -> Dict[str, int]:
+    return db.get_new_items_count(site) 

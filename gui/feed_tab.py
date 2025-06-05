@@ -10,6 +10,10 @@ import requests
 from io import BytesIO
 from typing import List, Dict, Any
 from customtkinter import CTkImage
+from datetime import datetime
+import webbrowser
+
+from core.database import get_new_items, mark_items_as_viewed, get_new_items_count, get_saved_searches
 
 logger = logging.getLogger(__name__)
 
@@ -164,60 +168,11 @@ class FeedTab(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
         
-        # Enhanced sample data
-        self.sample_products = [
-            {
-                'title': 'ユニクロ プレミアムTシャツ',
-                'source': 'ヤフオク',
-                'price': '¥2,500',
-                'image_url': None
-            },
-            {
-                'title': 'ナイキ ベースボールキャップ',
-                'source': 'メルカリ',
-                'price': '¥1,800',
-                'image_url': None
-            },
-            {
-                'title': 'リーバイス ヴィンテージデニム',
-                'source': 'ヤフーフリマ',
-                'price': '¥4,200',
-                'image_url': None
-            },
-            {
-                'title': 'ポケモンカード リザードン GX',
-                'source': '楽天',
-                'price': '¥15,000',
-                'image_url': None
-            },
-            {
-                'title': 'ナイキ エアジョーダン1 レトロ',
-                'source': 'Grailed',
-                'price': '¥22,000',
-                'image_url': None
-            },
-            {
-                'title': 'シュプリーム ボックスロゴTシャツ',
-                'source': 'メルカリ',
-                'price': '¥35,000',
-                'image_url': None
-            },
-            {
-                'title': 'アップル Watch Series 9',
-                'source': '楽天',
-                'price': '¥45,000',
-                'image_url': None
-            },
-            {
-                'title': 'ストーンアイランド ジャケット',
-                'source': 'Grailed',
-                'price': '¥28,000',
-                'image_url': None
-            }
-        ]
-        
         # Create the interface
         self.create_widgets()
+        
+        self.refresh_interval = 30000  # 30 seconds
+        self.schedule_refresh()
         
         logger.info("Feed tab initialized")
     
@@ -229,8 +184,8 @@ class FeedTab(ctk.CTkFrame):
         # Create scrollable content area
         self.create_content_area()
         
-        # Load sample products
-        self.load_products()
+        # Initial display
+        self.display_new_items()
     
     def create_header(self):
         """Create modern header."""
@@ -241,25 +196,21 @@ class FeedTab(ctk.CTkFrame):
             fg_color="transparent"
         )
         self.header_frame.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
-        self.header_frame.grid_columnconfigure(1, weight=1)
+        self.header_frame.grid_columnconfigure(0, weight=1)
         self.header_frame.grid_propagate(False)
         
-        # Title section with modern typography
-        self.title_frame = ctk.CTkFrame(self.header_frame, fg_color="transparent")
-        self.title_frame.grid(row=0, column=0, sticky="w", padx=30, pady=25)
-        
         self.title_label = ctk.CTkLabel(
-            self.title_frame,
-            text="あなたのフィード",
-            font=ctk.CTkFont(size=36, weight="bold"),  # Larger Japanese font
-            text_color="#FFFFFF",  # Pure white
+            self.header_frame,
+            text="新着アイテム",
+            font=ctk.CTkFont(size=36, weight="bold"),
+            text_color="#FFFFFF",
             anchor="w"
         )
-        self.title_label.pack(anchor="w")
+        self.title_label.grid(row=0, column=0, padx=30, pady=25, sticky="w")
         
         # Subtitle with item count
         self.filter_label = ctk.CTkLabel(
-            self.title_frame,
+            self.header_frame,
             text="新着順 • 8件の商品が見つかりました",
             font=ctk.CTkFont(size=15, weight="normal"),  # Fixed font weight
             text_color="#B3B3B3",  # Spotify secondary text
@@ -298,31 +249,236 @@ class FeedTab(ctk.CTkFrame):
         for i in range(4):
             self.scroll_frame.grid_columnconfigure(i, weight=1, uniform="col")
     
-    def load_products(self):
-        """Load products with Spotify-style grid."""
-        # Clear existing
+    def display_new_items(self):
+        """Display new items in the feed, grouped by saved search with notifications enabled only."""
+        # Clear existing items
         for widget in self.scroll_frame.winfo_children():
             widget.destroy()
         
-        # Create Spotify-style product cards
-        for index, product in enumerate(self.sample_products):
-            row = index // 4
-            col = index % 4
-            
-            # Create Spotify-style card
-            card = ProductCard(self.scroll_frame, product)
-            card.grid(
-                row=row, 
-                column=col, 
-                padx=15, 
-                pady=15, 
-                sticky="ew"
-            )
+        # Get saved searches with notifications enabled
+        saved_searches = [s for s in get_saved_searches() if s.get('notifications_enabled')]
+        if not saved_searches:
+            return  # No searches to show
         
-        # Bottom spacing
-        spacer_frame = ctk.CTkFrame(self.scroll_frame, height=50, fg_color="transparent")
-        spacer_frame.grid(row=(len(self.sample_products)//4) + 1, column=0, columnspan=4, pady=25)
-    
+        # Get new items for all searches (limit 100 for expand, but show only 10 by default)
+        items_by_search = get_new_items(limit=100)
+        
+        row = 0
+        for search in saved_searches:
+            search_name = search.get('name', f"Search {search['id']}")
+            items = items_by_search.get(search_name, [])
+            if not items:
+                continue  # Skip if no items for this search
+            
+            # Only show the top 10 by default
+            items_to_show = items[:10]
+            
+            # Create expandable section for each saved search
+            section_frame = ctk.CTkFrame(self.scroll_frame, fg_color="#282828", corner_radius=12)
+            section_frame.grid(row=row, column=0, sticky="ew", padx=0, pady=(20, 10))
+            section_frame.grid_columnconfigure(0, weight=1)
+            
+            # Header with search name and expand button
+            header_frame = ctk.CTkFrame(section_frame, fg_color="transparent")
+            header_frame.grid(row=0, column=0, sticky="ew", padx=16, pady=12)
+            header_frame.grid_columnconfigure(0, weight=1)
+            
+            # Search name and item count
+            title_text = f"{search_name} ({len(items)}件)"
+            title_label = ctk.CTkLabel(
+                header_frame,
+                text=title_text,
+                font=ctk.CTkFont(size=18, weight="bold"),
+                text_color="#8B5CF6"
+            )
+            title_label.grid(row=0, column=0, sticky="w")
+            
+            # Expand button
+            expand_button = ctk.CTkButton(
+                header_frame,
+                text="もっと見る",
+                width=100,
+                command=lambda s=search_name: self.expand_search_items(s)
+            )
+            expand_button.grid(row=0, column=1, padx=(16, 0))
+            
+            # Items container
+            items_container = ctk.CTkFrame(section_frame, fg_color="transparent")
+            items_container.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 12))
+            items_container.grid_columnconfigure(0, weight=1)
+            
+            # Display items (top 10)
+            for i, item in enumerate(items_to_show):
+                item_frame = ctk.CTkFrame(items_container, fg_color="#3E3E3E", corner_radius=8)
+                item_frame.grid(row=i, column=0, sticky="ew", pady=4)
+                item_frame.grid_columnconfigure(1, weight=1)
+                
+                # Image (if available)
+                if item.get('image_url'):
+                    try:
+                        response = requests.get(item['image_url'], timeout=5)
+                        img_data = BytesIO(response.content)
+                        pil_image = Image.open(img_data).convert("RGBA")
+                        target_size = (80, 80)
+                        pil_image = ImageOps.contain(pil_image, target_size, method=Image.LANCZOS)
+                        background = Image.new("RGBA", target_size, (62, 62, 62, 255))
+                        background.paste(pil_image, ((target_size[0] - pil_image.width) // 2, (target_size[1] - pil_image.height) // 2))
+                        ctk_image = CTkImage(light_image=background, size=target_size)
+                        image_label = ctk.CTkLabel(
+                            item_frame,
+                            image=ctk_image,
+                            text=""
+                        )
+                    except Exception:
+                        image_label = ctk.CTkLabel(
+                            item_frame,
+                            text="📷",
+                            font=ctk.CTkFont(size=24)
+                        )
+                else:
+                    image_label = ctk.CTkLabel(
+                        item_frame,
+                        text="📷",
+                        font=ctk.CTkFont(size=24)
+                    )
+                image_label.grid(row=0, column=0, padx=12, pady=12)
+                
+                # Item details
+                details_frame = ctk.CTkFrame(item_frame, fg_color="transparent")
+                details_frame.grid(row=0, column=1, sticky="ew", padx=8, pady=8)
+                details_frame.grid_columnconfigure(0, weight=1)
+                
+                # Title
+                title_label = ctk.CTkLabel(
+                    details_frame,
+                    text=item['title'],
+                    font=ctk.CTkFont(size=16, weight="bold"),
+                    text_color="#FFFFFF",
+                    anchor="w"
+                )
+                title_label.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+                
+                # Price and site
+                info_text = f"¥{item.get('price_formatted', 'N/A')} • {item['site']}"
+                info_label = ctk.CTkLabel(
+                    details_frame,
+                    text=info_text,
+                    font=ctk.CTkFont(size=14),
+                    text_color="#B3B3B3"
+                )
+                info_label.grid(row=1, column=0, sticky="ew")
+                
+                # Open button
+                open_button = ctk.CTkButton(
+                    item_frame,
+                    text="開く",
+                    width=60,
+                    command=lambda url=item['url']: self.open_item(url)
+                )
+                open_button.grid(row=0, column=2, padx=12, pady=12)
+            
+            row += 1
+
+    def expand_search_items(self, search_name: str):
+        """Expand a saved search to show up to 100 items."""
+        items_by_search = get_new_items(limit=100)
+        items = items_by_search.get(search_name, [])
+        
+        # Find the section for this search
+        for widget in self.scroll_frame.winfo_children():
+            if isinstance(widget, ctk.CTkFrame):
+                for child in widget.winfo_children():
+                    if isinstance(child, ctk.CTkFrame):  # header_frame
+                        for grandchild in child.winfo_children():
+                            if isinstance(grandchild, ctk.CTkLabel) and search_name in grandchild.cget("text"):
+                                # Found the section, update the items
+                                items_container = widget.winfo_children()[1]  # Get the items container
+                                
+                                # Clear existing items
+                                for item in items_container.winfo_children():
+                                    item.destroy()
+                                
+                                # Add all items
+                                for i, item in enumerate(items):
+                                    item_frame = ctk.CTkFrame(items_container, fg_color="#3E3E3E", corner_radius=8)
+                                    item_frame.grid(row=i, column=0, sticky="ew", pady=4)
+                                    item_frame.grid_columnconfigure(1, weight=1)
+                                    
+                                    # Image (if available)
+                                    if item.get('image_url'):
+                                        try:
+                                            response = requests.get(item['image_url'], timeout=5)
+                                            img_data = BytesIO(response.content)
+                                            pil_image = Image.open(img_data).convert("RGBA")
+                                            target_size = (80, 80)
+                                            pil_image = ImageOps.contain(pil_image, target_size, method=Image.LANCZOS)
+                                            background = Image.new("RGBA", target_size, (62, 62, 62, 255))
+                                            background.paste(pil_image, ((target_size[0] - pil_image.width) // 2, (target_size[1] - pil_image.height) // 2))
+                                            ctk_image = CTkImage(light_image=background, size=target_size)
+                                            image_label = ctk.CTkLabel(
+                                                item_frame,
+                                                image=ctk_image,
+                                                text=""
+                                            )
+                                        except Exception:
+                                            image_label = ctk.CTkLabel(
+                                                item_frame,
+                                                text="📷",
+                                                font=ctk.CTkFont(size=24)
+                                            )
+                                    else:
+                                        image_label = ctk.CTkLabel(
+                                            item_frame,
+                                            text="📷",
+                                            font=ctk.CTkFont(size=24)
+                                        )
+                                    image_label.grid(row=0, column=0, padx=12, pady=12)
+                                    
+                                    # Item details
+                                    details_frame = ctk.CTkFrame(item_frame, fg_color="transparent")
+                                    details_frame.grid(row=0, column=1, sticky="ew", padx=8, pady=8)
+                                    details_frame.grid_columnconfigure(0, weight=1)
+                                    
+                                    # Title
+                                    title_label = ctk.CTkLabel(
+                                        details_frame,
+                                        text=item['title'],
+                                        font=ctk.CTkFont(size=16, weight="bold"),
+                                        text_color="#FFFFFF",
+                                        anchor="w"
+                                    )
+                                    title_label.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+                                    
+                                    # Price and site
+                                    info_text = f"¥{item.get('price_formatted', 'N/A')} • {item['site']}"
+                                    info_label = ctk.CTkLabel(
+                                        details_frame,
+                                        text=info_text,
+                                        font=ctk.CTkFont(size=14),
+                                        text_color="#B3B3B3"
+                                    )
+                                    info_label.grid(row=1, column=0, sticky="ew")
+                                    
+                                    # Open button
+                                    open_button = ctk.CTkButton(
+                                        item_frame,
+                                        text="開く",
+                                        width=60,
+                                        command=lambda url=item['url']: self.open_item(url)
+                                    )
+                                    open_button.grid(row=0, column=2, padx=12, pady=12)
+                                
+                                # Update the header to show total count
+                                for child in child.winfo_children():
+                                    if isinstance(child, ctk.CTkLabel):
+                                        child.configure(text=f"{search_name} ({len(items)}件)")
+                                
+                                return
+
+    def open_item(self, url: str):
+        """Open item URL in default browser."""
+        webbrowser.open(url)
+
     def refresh_feed(self):
         """Purple-style refresh with smooth animations."""
         logger.info("Refreshing feed...")
@@ -347,15 +503,10 @@ class FeedTab(ctk.CTkFrame):
             ))
         
         # Simulate refresh
-        self.load_products()
+        self.display_new_items()
         self.after(900, complete_refresh)
     
-    def add_product(self, product_data: Dict[str, Any]):
-        """Add a new product to the feed."""
-        self.sample_products.insert(0, product_data)
-        self.load_products()
-    
-    def clear_feed(self):
-        """Clear all products from the feed."""
-        self.sample_products.clear()
-        self.load_products() 
+    def schedule_refresh(self):
+        """Schedule periodic refresh of the feed."""
+        self.display_new_items()
+        self.after(self.refresh_interval, self.schedule_refresh) 
