@@ -9,10 +9,13 @@ import logging
 import subprocess
 import sys
 import json
+import os
+import shutil
+import sqlite3
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 
-from core.database import get_saved_searches, add_new_items
+from core.database import get_saved_searches, get_saved_search_items, add_new_items
 
 # Configure logging with more detailed format
 logging.basicConfig(
@@ -22,6 +25,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+SNAPSHOT_DIR = 'snapshots'
+os.makedirs(SNAPSHOT_DIR, exist_ok=True)
+
 class BackgroundTaskManager:
     """Manages background tasks like periodic searches."""
     
@@ -29,7 +35,7 @@ class BackgroundTaskManager:
         """Initialize the background task manager."""
         self.running = False
         self.thread = None
-        self.search_interval = 300  # 5 minutes in seconds
+        self.search_interval = 600  # 10 minutes in seconds
         self.last_search_time = None
         logger.info("Background task manager initialized")
     
@@ -74,9 +80,22 @@ class BackgroundTaskManager:
                 time.sleep(1)
                 
             except Exception as e:
-                logger.error(f"Error in background task: {e}")
+                logger.error(f"Error in background task: {e}", exc_info=True)
                 time.sleep(5)  # Sleep longer on error
     
+    def _read_items_from_db(self, db_path):
+        items = []
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("SELECT * FROM search_results").fetchall()
+            for row in rows:
+                items.append(dict(row))
+            conn.close()
+        except Exception as e:
+            logger.error(f"Failed to read items from {db_path}: {e}")
+        return items
+
     def _run_saved_searches(self):
         """Run all saved searches and check for new items."""
         logger.info("Starting to run saved searches...")
@@ -87,111 +106,55 @@ class BackgroundTaskManager:
             logger.info("No saved searches with notifications enabled.")
             return
 
-        total_items_added_to_feed_this_cycle = 0
-
         for search in active_searches:
             search_id = search['id']
             search_name = search.get('name', f"Search {search_id}")
             logger.info(f"\nProcessing saved search: {search_name} (ID: {search_id})")
 
             try:
-                if 'options_json' not in search or not search['options_json']:
-                    logger.warning(f"Search '{search_name}' (ID: {search_id}) has no options_json or it is empty. Skipping.")
-                    continue
-                options_data = json.loads(search['options_json'])
-
-                keywords = options_data.get('keywords', [])
-                min_price = options_data.get('min_price', '') # Ensure default is string for str()
-                max_price = options_data.get('max_price', '') # Ensure default is string for str()
-                sites = options_data.get('sites', [])
-
-                if not keywords or not sites:
-                    logger.warning(f"Search '{search_name}' (ID: {search_id}) is missing keywords or sites. Skipping.")
-                    continue
-
-                logger.info(f"  Parameters: Keywords={keywords}, Price={min_price}-{max_price}, Sites={sites}")
-
-                cmd = [sys.executable, "test_scraper.py", "--sites", *sites, "--keywords", *keywords]
-                if min_price: # Only add if not empty
-                    cmd.extend(["--min-price", str(min_price)])
-                if max_price: # Only add if not empty
-                    cmd.extend(["--max-price", str(max_price)])
-                
+                # Prepare snapshot db paths
+                current_db = os.path.join(SNAPSHOT_DIR, f"saved_search_{search_id}_current.db")
+                prev_db = os.path.join(SNAPSHOT_DIR, f"saved_search_{search_id}_prev.db")
+                # Remove current_db if it exists
+                if os.path.exists(current_db):
+                    os.remove(current_db)
+                # Parse options
+                options = json.loads(search['options_json'])
+                keywords = options.get('keywords', [])
+                min_price = options.get('min_price', 0)
+                max_price = options.get('max_price', 1000000)
+                sites = options.get('sites', [])
+                # Build command
+                cmd = [sys.executable, "test_scraper.py", "--sites", *sites, "--keywords", *keywords, "--min-price", str(min_price), "--max-price", str(max_price), "--db", current_db]
                 logger.info(f"Running command: {' '.join(cmd)}")
-                
-                # Capture raw bytes, do not decode at subprocess level initially
-                process = subprocess.run(cmd, capture_output=True) 
-
-                stdout_text = None
-                stderr_text = None
-
-                # Attempt to decode stdout and stderr using multiple encodings
-                encodings_to_try = ['utf-8', 'shift_jis', 'cp932']
-                if process.stdout:
-                    for enc in encodings_to_try:
-                        try:
-                            stdout_text = process.stdout.decode(enc)
-                            logger.debug(f"Successfully decoded stdout with {enc}")
-                            break
-                        except UnicodeDecodeError:
-                            logger.debug(f"Failed to decode stdout with {enc}")
-                            continue
-                    if not stdout_text:
-                        logger.warning(f"Could not decode stdout for {search_name} with any attempted encoding. Raw: {process.stdout[:100]}")
-                        # Fallback or decide how to handle undecodable stdout, for now treat as no JSON output
-
-                if process.stderr:
-                    for enc in encodings_to_try:
-                        try:
-                            stderr_text = process.stderr.decode(enc)
-                            logger.debug(f"Successfully decoded stderr with {enc}")
-                            break
-                        except UnicodeDecodeError:
-                            logger.debug(f"Failed to decode stderr with {enc}")
-                            continue
-                    if not stderr_text:
-                         logger.warning(f"Could not decode stderr for {search_name} with any attempted encoding. Raw: {process.stderr[:100]}")
-
+                process = subprocess.run(cmd, capture_output=True)
                 if process.returncode != 0:
-                    logger.error(f"Error running test_scraper.py for {search_name}. Return code: {process.returncode}")
-                    if stdout_text:
-                        logger.error(f"Scraper STDOUT: {stdout_text}")
-                    if stderr_text:
-                        logger.error(f"Scraper STDERR: {stderr_text}")
+                    logger.error(f"Scraper failed for {search_name}. STDERR: {process.stderr.decode(errors='replace')}")
                     continue
-
-                if stdout_text:
-                    logger.info(f"Scraper stdout for {search_name}:\n{stdout_text[:500].strip()}...")
-                    try:
-                        scraped_items = json.loads(stdout_text)
-                        if isinstance(scraped_items, list):
-                            if scraped_items:
-                                items_added_count = add_new_items(search_id, scraped_items)
-                                if items_added_count > 0:
-                                    logger.info(f"Successfully added {items_added_count} new items to the feed for {search_name}.")
-                                    total_items_added_to_feed_this_cycle += items_added_count
-                                else:
-                                    logger.info(f"No genuinely new items to add to feed for {search_name} from this scrape (already exist or filtered).")
-                            else:
-                                logger.info(f"Scraper returned an empty list of items for {search_name}.")
-                        else:
-                            logger.warning(f"Scraper output for {search_name} was not a JSON list as expected. Output: {stdout_text[:500].strip()}")
-                    except json.JSONDecodeError as je:
-                        logger.error(f"Failed to decode JSON output from scraper for {search_name}: {je}. Output: {stdout_text[:500].strip()}")
+                # Read items from new snapshot db
+                current_items = self._read_items_from_db(current_db)
+                logger.info(f"Found {len(current_items)} items in current snapshot for {search_name}")
+                # Read items from previous snapshot db or from saved_search_items if first run
+                if os.path.exists(prev_db):
+                    prev_items = self._read_items_from_db(prev_db)
                 else:
-                    logger.info(f"No decoded output (stdout) from scraper for {search_name}.")
-                
-                if stderr_text:
-                    logger.info(f"Scraper stderr for {search_name}:\n{stderr_text.strip()}")
-
+                    prev_items = get_saved_search_items(search_id)
+                prev_urls = {item['url'] for item in prev_items}
+                new_items = [item for item in current_items if item['url'] not in prev_urls]
+                logger.info(f"Detected {len(new_items)} new items for {search_name}")
+                # Add new items to feed
+                if new_items:
+                    added_count = add_new_items(search_id, new_items)
+                    logger.info(f"Added {added_count} new items to feed for {search_name}")
+                # Replace previous snapshot
+                if os.path.exists(prev_db):
+                    os.remove(prev_db)
+                shutil.move(current_db, prev_db)
             except Exception as e:
                 logger.error(f"Error processing saved search {search_name}: {e}", exc_info=True)
                 continue
         
-        if total_items_added_to_feed_this_cycle > 0:
-            logger.info(f"\nTotal new items added to feed this cycle: {total_items_added_to_feed_this_cycle}")
-        else:
-            logger.info("\nNo new items were added to the feed in any saved searches this cycle.")
+        logger.info("\nNo new items were added to the feed in any saved searches this cycle.")
 
 # Create a global instance
 task_manager = BackgroundTaskManager()
