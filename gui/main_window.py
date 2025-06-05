@@ -265,6 +265,12 @@ class MainWindow(ctk.CTk):
             logger.error(f"Error initializing tab content: {e}")
             # Create placeholder content if tab modules aren't ready
             self.create_placeholder_content()
+            # Initialize placeholder tabs to prevent attribute errors
+            self.search_tab = self.placeholder_label
+            self.feed_tab = self.placeholder_label
+            self.favorites_tab = self.placeholder_label
+            self.settings_tab = self.placeholder_label
+            self.saved_searches_tab = self.placeholder_label
     
     def create_placeholder_content(self):
         """Create placeholder content for tabs during development."""

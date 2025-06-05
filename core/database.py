@@ -82,6 +82,7 @@ class DatabaseManager:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     options_json TEXT NOT NULL,
                     name TEXT,
+                    notifications_enabled BOOLEAN DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
@@ -116,6 +117,15 @@ class DatabaseManager:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_search_results_site ON search_results(site)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_search_results_query ON search_results(search_query)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_search_results_price ON search_results(price_value)")
+            
+            # Add notifications_enabled column if it doesn't exist
+            try:
+                conn.execute("ALTER TABLE saved_searches ADD COLUMN notifications_enabled BOOLEAN DEFAULT 0")
+                logger.info("Added notifications_enabled column to saved_searches table")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e):
+                    raise
+                logger.debug("notifications_enabled column already exists")
             
             conn.commit()
     
@@ -264,12 +274,35 @@ class DatabaseManager:
         """Create a new saved search and return its ID."""
         with self.get_connection() as conn:
             cursor = conn.execute(
-                "INSERT INTO saved_searches (options_json, name) VALUES (?, ?)",
-                (json.dumps(options, ensure_ascii=False), name)
+                "INSERT INTO saved_searches (options_json, name, notifications_enabled) VALUES (?, ?, ?)",
+                (json.dumps(options, ensure_ascii=False), name, False)
             )
             conn.commit()
             logger.info(f"Saved search inserted: name={name}, options={options}, id={cursor.lastrowid}")
             return cursor.lastrowid
+
+    def update_saved_search_notifications(self, saved_search_id: int, enabled: bool) -> bool:
+        """
+        Update the notifications status for a saved search.
+        
+        Args:
+            saved_search_id: ID of the saved search to update
+            enabled: Whether notifications should be enabled
+            
+        Returns:
+            True if update was successful, False otherwise
+        """
+        try:
+            with self.get_connection() as conn:
+                conn.execute(
+                    "UPDATE saved_searches SET notifications_enabled = ? WHERE id = ?",
+                    (enabled, saved_search_id)
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Failed to update notifications status for saved search {saved_search_id}: {e}")
+            return False
 
     def add_saved_search_items(self, saved_search_id: int, items: list):
         """Add items to a saved search, skipping duplicates by title and price_value."""
@@ -355,6 +388,9 @@ def item_exists(title: str, price_value: float) -> bool:
 
 def create_saved_search(options, name=None):
     return db.create_saved_search(options, name)
+
+def update_saved_search_notifications(saved_search_id, enabled):
+    return db.update_saved_search_notifications(saved_search_id, enabled)
 
 def add_saved_search_items(saved_search_id, items):
     return db.add_saved_search_items(saved_search_id, items)

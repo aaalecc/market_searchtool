@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from core.database import get_saved_searches, get_saved_search_items, delete_saved_search
+from core.database import get_saved_searches, get_saved_search_items, delete_saved_search, update_saved_search_notifications
 import json
 from tkinter import messagebox
 
@@ -44,6 +44,10 @@ class SavedSearchesTab(ctk.CTkFrame):
             delete_saved_search(search_id)
             self.display_saved_searches()  # Refresh the display
 
+    def toggle_notifications(self, search_id, enabled):
+        """Handle notification toggle switch state change."""
+        update_saved_search_notifications(search_id, enabled)
+
     def display_saved_searches(self):
         for widget in self.scroll_frame.winfo_children():
             widget.destroy()
@@ -66,6 +70,15 @@ class SavedSearchesTab(ctk.CTkFrame):
             # Item count
             count_label = ctk.CTkLabel(row_frame, text=f"{item_count}件のアイテム", font=ctk.CTkFont(size=14, weight="bold"), text_color="#22c55e")
             count_label.grid(row=0, column=2, sticky="e", padx=16)
+            # Notifications toggle
+            notifications_switch = ctk.CTkSwitch(
+                row_frame,
+                text="通知",
+                font=ctk.CTkFont(size=14),
+                command=lambda s=search['id']: self.toggle_notifications(s, notifications_switch.get())
+            )
+            notifications_switch.grid(row=0, column=3, sticky="e", padx=16)
+            notifications_switch.select() if search.get('notifications_enabled', True) else notifications_switch.deselect()
             # Delete button
             delete_button = ctk.CTkButton(
                 row_frame,
@@ -77,4 +90,4 @@ class SavedSearchesTab(ctk.CTkFrame):
                 hover_color="#dc2626",  # Darker red on hover
                 command=lambda s=search['id'], n=name: self.delete_saved_search(s, n)
             )
-            delete_button.grid(row=0, column=3, sticky="e", padx=16, pady=8) 
+            delete_button.grid(row=0, column=4, sticky="e", padx=16, pady=8) 
