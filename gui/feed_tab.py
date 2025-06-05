@@ -23,10 +23,11 @@ class FeedTab(ctk.CTkFrame):
         logger.info(f"{self.__class__.__name__} initialized with font family: {self.font_family}")
         
         self.grid_columnconfigure(0, weight=1)
-        self.create_widgets()
+        self.refresh_display()
     
-    def create_widgets(self):
-        """Create a minimal feed interface: title, and outlined saved searches with items."""
+    def refresh_display(self):
+        """Re-fetches data and refreshes the feed interface."""
+        # Clear existing widgets before redrawing
         for widget in self.winfo_children():
             widget.destroy()
         
@@ -34,7 +35,9 @@ class FeedTab(ctk.CTkFrame):
         self.title_label = ctk.CTkLabel(self, text="フィード", font=title_font, text_color="#FFFFFF", anchor="w")
         self.title_label.pack(anchor="nw", padx=30, pady=25, fill="x")
 
+        # Fetch the latest data
         all_new_items_by_search = get_new_items(limit=100)
+        # Ensure we get the latest saved searches, especially their notification_enabled status
         saved_searches = [s for s in get_saved_searches() if s.get('notifications_enabled')]
         
         message_font = ctk.CTkFont(family=self.font_family, size=18)

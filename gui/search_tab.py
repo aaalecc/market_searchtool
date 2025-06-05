@@ -413,6 +413,14 @@ class SearchTab(ctk.CTkFrame):
         min_price = self.min_price_entry.get().strip()
         max_price = self.max_price_entry.get().strip()
         selected_sites = [site_id for site_id, var in self.site_vars.items() if var.get()]
+        
+        if not keywords:
+            CTkMessagebox(title="エラー", message="キーワードを入力してください。", icon="cancel", font=(self.font_family, 12))
+            return
+        if not selected_sites:
+            CTkMessagebox(title="エラー", message="検索サイトを少なくとも1つ選択してください。", icon="cancel", font=(self.font_family, 12))
+            return
+
         options = {
             'keywords': keywords,
             'min_price': min_price,
@@ -420,7 +428,7 @@ class SearchTab(ctk.CTkFrame):
             'sites': selected_sites
         }
         # Prompt for a name using CTkInputDialog
-        dialog = CTkInputDialog(text="この検索の名前を入力してください:", title="保存名")
+        dialog = CTkInputDialog(text="この検索の名前を入力してください:", title="保存名", font=(self.font_family, 12))
         name = dialog.get_input()
         if not name:
             return  # User cancelled or left blank
@@ -429,22 +437,31 @@ class SearchTab(ctk.CTkFrame):
         # Gather all currently displayed items (all pages)
         all_items = []
         offset = 0
-        while True:
-            items = get_search_results(limit=self.items_per_page, offset=offset, sort_by="price_value", sort_order="asc")
-            if not items:
-                break
-            all_items.extend(items)
-            if len(items) < self.items_per_page:
-                break
-            offset += self.items_per_page
-        # Save items to saved_search_items
-        add_saved_search_items(saved_search_id, all_items)
-        # Show a confirmation
-        CTkMessagebox(title="保存完了", message="検索とアイテムが保存されました。", icon="check")
-        # Refresh the Saved Searches tab if possible
-        main_window = self.winfo_toplevel()
-        if hasattr(main_window, 'saved_searches_tab'):
-            main_window.saved_searches_tab.display_saved_searches()
+        # Temporarily, we will just save the items from the current view. 
+        # A more robust solution might involve re-fetching all items if pagination is deep.
+        current_results_on_display = get_search_results(limit=self.items_per_page, offset=(self.current_page -1) * self.items_per_page, sort_by="price_value", sort_order="asc")
+        
+        if saved_search_id:
+            if current_results_on_display: # Only add items if there are results
+                add_saved_search_items(saved_search_id, current_results_on_display)
+                CTkMessagebox(title="保存完了", message=f"「{name}」が{len(current_results_on_display)}件のアイテムと共に保存されました。", icon="check", font=(self.font_family, 12))
+            else:
+                 CTkMessagebox(title="保存完了", message=f"「{name}」が保存されました。(アイテムなし)", icon="check", font=(self.font_family, 12))
+
+            # Refresh the Saved Searches tab if possible
+            main_window = self.winfo_toplevel()
+            if hasattr(main_window, 'saved_searches_tab') and hasattr(main_window.saved_searches_tab, 'display_saved_searches'):
+                # Access the font_family from the saved_searches_tab instance
+                sst_font_family = main_window.saved_searches_tab.font_family
+                # Define fonts as expected by display_saved_searches
+                name_font = ctk.CTkFont(family=sst_font_family, size=18, weight="bold")
+                opts_font = ctk.CTkFont(family=sst_font_family, size=14)
+                count_font = ctk.CTkFont(family=sst_font_family, size=14, weight="bold")
+                sw_font = ctk.CTkFont(family=sst_font_family, size=14)
+                del_btn_font = ctk.CTkFont(family=sst_font_family, size=14, weight="bold")
+                main_window.saved_searches_tab.display_saved_searches(name_font, opts_font, count_font, sw_font, del_btn_font)
+        else:
+            CTkMessagebox(title="保存失敗", message="検索の保存中にエラーが発生しました。", icon="cancel", font=(self.font_family, 12))
 
 class ProductCard(ctk.CTkFrame):
     """Individual product card widget with black and purple design."""
@@ -561,7 +578,7 @@ class ProductCard(ctk.CTkFrame):
         self.spacer.grid(row=3, column=0, sticky="nswe")
         
         # Price at the bottom/footer of the card
-        price = self.product_data.get('price_formatted', '¥---')
+        price = self.product_data.get('price', '¥---')
         self.price_label = ctk.CTkLabel(
             self,
             text=price,

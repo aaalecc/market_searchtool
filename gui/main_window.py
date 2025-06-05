@@ -291,12 +291,14 @@ class MainWindow(ctk.CTk):
         self.placeholder_label.grid(row=0, column=0, sticky="nsew")
     
     def show_feed_tab(self):
-        """Show the feed tab."""
+        """Show the feed tab and refresh its content."""
         self.hide_all_tabs()
         self.feed_tab.grid(row=0, column=0, sticky="nsew")
+        if hasattr(self.feed_tab, 'refresh_display'): # Ensure method exists
+            self.feed_tab.refresh_display() # Refresh content
         self.update_sidebar_selection("feed")
         self.current_tab = "feed"
-        logger.info("Showing feed tab")
+        logger.info("Showing feed tab and refreshing content")
     
     def show_search_tab(self):
         """Show the search tab."""
