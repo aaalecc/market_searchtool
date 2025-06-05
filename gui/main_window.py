@@ -27,6 +27,11 @@ class MainWindow(ctk.CTk):
         """Initialize the main window."""
         super().__init__()
         
+        self.app_font_family = "Meiryo UI" # Define base family
+        self.app_font_size = 14 # Define base size
+        self.app_font = ctk.CTkFont(family=self.app_font_family, size=self.app_font_size)
+        
+        logger.info(f"Default app font set to: {self.app_font_family} size {self.app_font_size}")
         logger.info("Initializing main window...")
         
         # Initialize window properties
@@ -127,7 +132,7 @@ class MainWindow(ctk.CTk):
         self.logo_label = ctk.CTkLabel(
             self.logo_frame, 
             text="マーケットツール", 
-            font=ctk.CTkFont(size=28, weight="bold"),
+            font=ctk.CTkFont(family=self.app_font_family, size=28, weight="bold"),
             text_color="#FFFFFF"  # Pure white for maximum contrast
         )
         self.logo_label.pack()
@@ -135,7 +140,7 @@ class MainWindow(ctk.CTk):
         self.subtitle_label = ctk.CTkLabel(
             self.logo_frame,
             text="商品検索ツール",
-            font=ctk.CTkFont(size=14, weight="normal"),
+            font=ctk.CTkFont(family=self.app_font_family, size=14, weight="normal"),
             text_color="#B3B3B3"  # Spotify's actual secondary text color
         )
         self.subtitle_label.pack(pady=(4, 0))
@@ -147,13 +152,14 @@ class MainWindow(ctk.CTk):
         self.nav_label = ctk.CTkLabel(
             self.nav_frame, 
             text="ナビゲーション", 
-            font=ctk.CTkFont(size=14, weight="bold"),
+            font=ctk.CTkFont(family=self.app_font_family, size=14, weight="bold"),
             text_color="#B3B3B3",  # Spotify's actual secondary text
             anchor="w"
         )
         self.nav_label.pack(anchor="w", pady=(0, 20))
         
         # Spotify-style navigation buttons
+        nav_button_font = ctk.CTkFont(family=self.app_font_family, size=16, weight="normal")
         button_style = {
             "corner_radius": 25,  # Very rounded like modern apps
             "height": 50,
@@ -162,7 +168,7 @@ class MainWindow(ctk.CTk):
             "text_color": "#B3B3B3",  # Spotify's actual secondary text
             "hover_color": "#1A1A1A",  # Very dark gray on hover
             "anchor": "w",
-            "font": ctk.CTkFont(size=16, weight="normal")
+            "font": nav_button_font
         }
         
         self.feed_button = ctk.CTkButton(
@@ -219,7 +225,7 @@ class MainWindow(ctk.CTk):
             command=self.toggle_theme,
             fg_color="#8B5CF6",  # Purple accent
             hover_color="#A78BFA",  # Lighter purple on hover
-            font=ctk.CTkFont(size=18),
+            font=ctk.CTkFont(family=self.app_font_family, size=18),
             text_color="#FFFFFF"  # White text on purple
         )
         self.theme_button.grid(row=8, column=0, pady=(0, 30))
@@ -247,27 +253,24 @@ class MainWindow(ctk.CTk):
         self.content_container.grid_rowconfigure(0, weight=1)
     
     def init_tab_content(self):
-        """Initialize content for each tab."""
+        """Initialize content for each tab, passing the app_font."""
         try:
-            # Initialize all tabs but don't show them yet
-            self.search_tab = SearchTab(self.content_container)
-            self.feed_tab = FeedTab(self.content_container)
-            self.favorites_tab = FavoritesTab(self.content_container)
-            self.settings_tab = SettingsTab(self.content_container, main_window=self)
-            self.saved_searches_tab = SavedSearchesTab(self.content_container)
+            self.search_tab = SearchTab(self.content_container, font=self.app_font)
+            self.feed_tab = FeedTab(self.content_container, font=self.app_font)
+            self.favorites_tab = FavoritesTab(self.content_container, font=self.app_font)
+            self.settings_tab = SettingsTab(self.content_container, main_window=self, font=self.app_font)
+            self.saved_searches_tab = SavedSearchesTab(self.content_container, font=self.app_font)
+            
+            tabs_to_hide = [self.search_tab, self.feed_tab, self.favorites_tab, self.settings_tab, self.saved_searches_tab]
             
             # Hide all tabs initially
-            self.search_tab.grid_remove()
-            self.feed_tab.grid_remove()
-            self.favorites_tab.grid_remove()
-            self.settings_tab.grid_remove()
-            self.saved_searches_tab.grid_remove()
+            for tab in tabs_to_hide:
+                tab.grid_remove()
             
-            logger.info("All tabs initialized")
+            logger.info("All tabs initialized and hidden")
             
         except Exception as e:
-            logger.error(f"Error initializing tab content: {e}")
-            # Create placeholder content if tab modules aren't ready
+            logger.error(f"Error initializing tab content: {e}", exc_info=True)
             self.create_placeholder_content()
             # Initialize placeholder tabs to prevent attribute errors
             self.search_tab = self.placeholder_label
@@ -283,7 +286,7 @@ class MainWindow(ctk.CTk):
         self.placeholder_label = ctk.CTkLabel(
             self.content_container,
             text="🔍 Tab content loading...",
-            font=ctk.CTkFont(size=18)
+            font=ctk.CTkFont(family=self.app_font_family, size=18)
         )
         self.placeholder_label.grid(row=0, column=0, sticky="nsew")
     

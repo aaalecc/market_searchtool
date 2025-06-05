@@ -14,51 +14,36 @@ logger = logging.getLogger(__name__)
 class FeedTab(ctk.CTkFrame):
     """Feed tab with a minimal design, showing saved searches and their items."""
     
-    def __init__(self, parent):
+    def __init__(self, parent, font=None):
         """Initialize the feed tab."""
         super().__init__(parent, corner_radius=0, fg_color="transparent")
         
-        logger.info("Initializing Feed tab...")
+        self.font = font
+        self.font_family = self.font.cget('family') if self.font else "Meiryo UI"
+        logger.info(f"{self.__class__.__name__} initialized with font family: {self.font_family}")
         
-        # Configure layout (important for .pack to work as expected)
-        self.grid_columnconfigure(0, weight=1) 
-        # self.grid_rowconfigure(0, weight=0) # For title
-        # self.grid_rowconfigure(1, weight=1) # For scrollable content area if we add it back
-
+        self.grid_columnconfigure(0, weight=1)
         self.create_widgets()
-        logger.info("Feed tab initialized")
     
     def create_widgets(self):
-        """Create a minimal feed interface: just a title and a list of saved searches with notifications enabled and their items."""
-        # Clear all widgets
+        """Create a minimal feed interface: title, and outlined saved searches with items."""
         for widget in self.winfo_children():
             widget.destroy()
         
-        # Title (like other tabs)
-        self.title_label = ctk.CTkLabel(
-            self,
-            text="フィード",
-            font=ctk.CTkFont(size=36, weight="bold"),
-            text_color="#FFFFFF",
-            anchor="w"
-        )
+        title_font = ctk.CTkFont(family=self.font_family, size=36, weight="bold")
+        self.title_label = ctk.CTkLabel(self, text="フィード", font=title_font, text_color="#FFFFFF", anchor="w")
         self.title_label.pack(anchor="nw", padx=30, pady=25, fill="x")
 
-        # Fetch all new items once
         all_new_items_by_search = get_new_items(limit=100)
-        
-        # List saved searches with notifications enabled
         saved_searches = [s for s in get_saved_searches() if s.get('notifications_enabled')]
         
+        message_font = ctk.CTkFont(family=self.font_family, size=18)
+        section_header_font = ctk.CTkFont(family=self.font_family, size=20, weight="bold")
+        empty_item_font = ctk.CTkFont(family=self.font_family, size=16)
+
         if not saved_searches:
-            empty_label = ctk.CTkLabel(
-                self,
-                text="有効な通知設定の保存済み検索はありません。", # Changed message
-                font=ctk.CTkFont(size=18),
-                text_color="#B3B3B3",
-                anchor="w"
-            )
-            empty_label.pack(anchor="nw", padx=40, pady=8, fill="x")
+            empty_label = ctk.CTkLabel(self, text="有効な通知設定の保存済み検索はありません。", font=message_font, text_color="#B3B3B3", anchor="center")
+            empty_label.pack(anchor="center", padx=40, pady=20, fill="x", expand=True)
             return
         
         found_items_for_any_search = False
@@ -66,78 +51,49 @@ class FeedTab(ctk.CTkFrame):
             search_id = search['id']
             search_name = search.get('name', f"Search {search_id}")
             
-            # Section header for the saved search
-            section_label = ctk.CTkLabel(
-                self,
-                text=search_name,
-                font=ctk.CTkFont(size=20, weight="bold"),
-                text_color="#8B5CF6",
-                anchor="w"
-            )
-            section_label.pack(anchor="nw", padx=40, pady=(16, 4), fill="x")
+            search_card_container = ctk.CTkFrame(self, fg_color="#282828", border_width=1, border_color="#404040", corner_radius=12)
+            search_card_container.pack(anchor="nw", fill="x", padx=30, pady=(10, 5))
+            
+            section_label = ctk.CTkLabel(search_card_container, text=search_name, font=section_header_font, text_color="#8B5CF6", anchor="w")
+            section_label.pack(anchor="nw", padx=15, pady=(10, 5), fill="x")
             
             items = all_new_items_by_search.get(search_name, [])
-            
+            items_display_frame = ctk.CTkFrame(search_card_container, fg_color="transparent")
+            items_display_frame.pack(anchor="nw", fill="x", padx=15, pady=(0,10))
+
             if not items:
-                empty_item_label = ctk.CTkLabel(
-                    self,
-                    text="新規アイテムはありません",
-                    font=ctk.CTkFont(size=16),
-                    text_color="#B3B3B3",
-                    anchor="w"
-                )
-                empty_item_label.pack(anchor="nw", padx=60, pady=4, fill="x")
-                continue # Move to the next search
+                empty_item_label = ctk.CTkLabel(items_display_frame, text="新規アイテムはありません", font=empty_item_font, text_color="#B3B3B3", anchor="w")
+                empty_item_label.pack(anchor="nw", padx=0, pady=4, fill="x")
+                continue
             
             found_items_for_any_search = True
-            # Container for items and expand button for this search
-            # This helps in expand_search_items_simple to target removal
-            search_items_frame = ctk.CTkFrame(self, fg_color="transparent")
-            search_items_frame.pack(anchor="nw", fill="x", padx=0, pady=0)
-            search_items_frame.search_name_ref = search_name # Store reference for expand
-
-            self._display_items_for_search(search_items_frame, search_name, items, initial_display=True)
+            self._display_items_for_search(items_display_frame, search_name, items, initial_display=True)
 
         if not found_items_for_any_search and saved_searches:
-             # This message appears if there are enabled searches, but NONE of them have items.
-            overall_empty_label = ctk.CTkLabel(
-                self,
-                text="全ての有効な検索に新規アイテムはありません。",
-                font=ctk.CTkFont(size=18),
-                text_color="#B3B3B3",
-                anchor="w"
-            )
-            overall_empty_label.pack(anchor="nw", padx=40, pady=8, fill="x")
-
+            overall_empty_label = ctk.CTkLabel(self, text="全ての有効な検索に新規アイテムはありません。", font=message_font, text_color="#B3B3B3", anchor="center")
+            overall_empty_label.pack(anchor="center", padx=40, pady=20, fill="x", expand=True)
 
     def _display_items_for_search(self, parent_frame: ctk.CTkFrame, search_name: str, all_items: List[Dict], initial_display: bool = True):
-        """Helper to display items for a given search, either initially (10) or expanded (100)."""
-        for widget in parent_frame.winfo_children(): # Clear previous items/button in this frame
+        for widget in parent_frame.winfo_children():
             widget.destroy()
+        
+        item_text_font = ctk.CTkFont(family=self.font_family, size=15)
+        button_font = ctk.CTkFont(family=self.font_family, size=14, weight="bold")
 
         items_to_show = all_items[:10] if initial_display else all_items
+        item_list_frame = ctk.CTkFrame(parent_frame, fg_color="transparent")
+        item_list_frame.pack(anchor="nw", fill="x", pady=(0,5))
 
         for item in items_to_show:
-            item_label = ctk.CTkLabel(
-                parent_frame,
-                text=item['title'], # Simple display, just title
-                font=ctk.CTkFont(size=15),
-                text_color="#FFFFFF",
-                anchor="w"
-            )
-            item_label.pack(anchor="nw", padx=60, pady=2, fill="x")
+            item_label = ctk.CTkLabel(item_list_frame, text=item['title'], font=item_text_font, text_color="#FFFFFF", anchor="w")
+            item_label.pack(anchor="nw", padx=0, pady=2, fill="x")
             
         if initial_display and len(all_items) > 10:
-            expand_button = ctk.CTkButton(
-                parent_frame,
-                text="もっと見る",
-                width=100,
-                command=lambda sf=parent_frame, sn=search_name, ai=all_items: self._display_items_for_search(sf, sn, ai, initial_display=False)
-            )
-            expand_button.pack(anchor="nw", padx=60, pady=(2, 8))
-        elif not initial_display and len(all_items) > 10: # Optionally, show a "show less" or just leave it expanded
-            # You could add a "show less" button here if desired
-            pass
+            expand_button = ctk.CTkButton(parent_frame, text="もっと見る", width=100, font=button_font, command=lambda sf=parent_frame, sn=search_name, ai=all_items: self._display_items_for_search(sf, sn, ai, initial_display=False))
+            expand_button.pack(anchor="ne", padx=0, pady=(5, 0))
+        elif not initial_display and len(all_items) > 10:
+            show_less_button = ctk.CTkButton(parent_frame, text="少なく表示", width=100, font=button_font, command=lambda sf=parent_frame, sn=search_name, ai=all_items: self._display_items_for_search(sf, sn, ai, initial_display=True))
+            show_less_button.pack(anchor="ne", padx=0, pady=(5, 0))
 
 
     # Removed ProductCard class as it's not used in this minimal version

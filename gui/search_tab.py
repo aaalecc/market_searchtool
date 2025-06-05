@@ -23,9 +23,13 @@ logger = logging.getLogger(__name__)
 class SearchTab(ctk.CTkFrame):
     """Search tab with black and purple design."""
     
-    def __init__(self, parent):
+    def __init__(self, parent, font=None):
         """Initialize the search tab."""
         super().__init__(parent, corner_radius=0, fg_color="transparent")
+        
+        self.font = font
+        self.font_family = self.font.cget('family') if self.font else "Meiryo UI"
+        logger.info(f"{self.__class__.__name__} initialized with font family: {self.font_family}")
         
         logger.info("Initializing Search tab...")
         
@@ -55,156 +59,87 @@ class SearchTab(ctk.CTkFrame):
     
     def create_widgets(self):
         """Create the search interface with Spotify styling."""
-        # Header section
-        self.create_header()
-        
-        # Main content area
-        self.create_content()
+        # Define fonts based on self.font_family for this method
+        header_title_font = ctk.CTkFont(family=self.font_family, size=36, weight="bold")
+        save_button_font = ctk.CTkFont(family=self.font_family, size=14, weight="bold")
+        entry_font = ctk.CTkFont(family=self.font_family, size=15)
+        price_entry_font = ctk.CTkFont(family=self.font_family, size=14)
+        search_button_font = ctk.CTkFont(family=self.font_family, size=15, weight="bold")
+        checkbox_font = ctk.CTkFont(family=self.font_family, size=14)
+
+        self.create_header(header_title_font, save_button_font)
+        self.create_content(entry_font, price_entry_font, search_button_font, checkbox_font)
     
-    def create_header(self):
+    def create_header(self, title_font, button_font):
         """Create Spotify-style header."""
-        self.header_frame = ctk.CTkFrame(
-            self, 
-            height=100, 
-            corner_radius=0, 
-            fg_color="transparent"
-        )
+        self.header_frame = ctk.CTkFrame(self, height=100, corner_radius=0, fg_color="transparent")
         self.header_frame.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
         self.header_frame.grid_columnconfigure(0, weight=1)
         self.header_frame.grid_columnconfigure(1, weight=0)
-        self.header_frame.grid_propagate(False)
+        # self.header_frame.grid_propagate(False) # Commented out, might not be needed / could affect layout
         
-        # Title with Spotify typography and larger Japanese font
-        self.title_label = ctk.CTkLabel(
-            self.header_frame,
-            text="マーケットサイト検索",
-            font=ctk.CTkFont(size=36, weight="bold"),
-            text_color="#FFFFFF",
-            anchor="w"
-        )
+        self.title_label = ctk.CTkLabel(self.header_frame, text="マーケットサイト検索", font=title_font, text_color="#FFFFFF", anchor="w")
         self.title_label.grid(row=0, column=0, padx=30, pady=25, sticky="w")
         
-        # Save Search button (move here)
         self.save_search_button = ctk.CTkButton(
-            self.header_frame,
-            text="💾 検索を保存",
-            height=36,
-            width=140,
-            corner_radius=18,
-            font=ctk.CTkFont(size=14, weight="bold"),
-            fg_color="#22c55e",
-            hover_color="#16a34a",
-            text_color="#FFFFFF",
-            command=self.save_current_search
+            self.header_frame, text="💾 検索を保存", height=36, width=140, corner_radius=18,
+            font=button_font, fg_color="#22c55e", hover_color="#16a34a",
+            text_color="#FFFFFF", command=self.save_current_search
         )
         self.save_search_button.grid(row=0, column=1, padx=(0, 30), pady=(20, 0), sticky="e")
     
-    def create_content(self):
+    def create_content(self, entry_font, price_font, search_btn_font, chkbox_font):
         """Create Spotify-style content area."""
-        # Content frame
-        self.content_frame = ctk.CTkFrame(
-            self,
-            fg_color="transparent"
-        )
+        self.content_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.content_frame.grid(row=2, column=0, sticky="nsew", padx=30, pady=(0, 20))
         self.content_frame.grid_columnconfigure(0, weight=1)
-        self.content_frame.grid_rowconfigure(0, weight=0)  # Search box
-        self.content_frame.grid_rowconfigure(1, weight=1)  # Results area
+        self.content_frame.grid_rowconfigure(0, weight=0)
+        self.content_frame.grid_rowconfigure(1, weight=1)
         
-        # Search container
-        self.search_container = ctk.CTkFrame(
-            self.content_frame,
-            corner_radius=16,
-            fg_color="#282828",
-            border_width=0,
-            height=70
-        )
+        self.search_container = ctk.CTkFrame(self.content_frame, corner_radius=16, fg_color="#282828", border_width=0, height=70)
         self.search_container.grid(row=0, column=0, sticky="ew", pady=(0, 10))
-        self.search_container.grid_propagate(False)
+        # self.search_container.grid_propagate(False) # Commented out
         self.search_container.grid_columnconfigure(0, weight=1)
         
-        # Horizontal search form
         self.form_frame = ctk.CTkFrame(self.search_container, fg_color="transparent")
         self.form_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
         for i in range(7):
             self.form_frame.grid_columnconfigure(i, weight=0)
         self.form_frame.grid_columnconfigure(0, weight=1)
         
-        # Search entry
         self.search_entry = ctk.CTkEntry(
-            self.form_frame,
-            placeholder_text="検索したい商品名を入力してください...",
-            height=40,
-            width=320,
-            corner_radius=20,
-            font=ctk.CTkFont(size=15),
-            border_width=2,
-            border_color="#535353",
-            fg_color="#121212",
-            text_color="#FFFFFF",
-            placeholder_text_color="#B3B3B3"
+            self.form_frame, placeholder_text="検索したい商品名を入力してください...", height=40, width=320, corner_radius=20,
+            font=entry_font, border_width=2, border_color="#535353", fg_color="#121212",
+            text_color="#FFFFFF", placeholder_text_color="#B3B3B3"
         )
         self.search_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
         
-        # Min price
         self.min_price_entry = ctk.CTkEntry(
-            self.form_frame,
-            placeholder_text="最低価格",
-            width=80,
-            height=40,
-            corner_radius=15,
-            font=ctk.CTkFont(size=14),
-            border_width=2,
-            border_color="#535353",
-            fg_color="#121212",
-            text_color="#FFFFFF"
+            self.form_frame, placeholder_text="最低価格", width=80, height=40, corner_radius=15,
+            font=price_font, border_width=2, border_color="#535353", fg_color="#121212", text_color="#FFFFFF"
         )
         self.min_price_entry.grid(row=0, column=1, padx=(0, 5))
         
-        # Max price
         self.max_price_entry = ctk.CTkEntry(
-            self.form_frame,
-            placeholder_text="最高価格",
-            width=80,
-            height=40,
-            corner_radius=15,
-            font=ctk.CTkFont(size=14),
-            border_width=2,
-            border_color="#535353",
-            fg_color="#121212",
-            text_color="#FFFFFF"
+            self.form_frame, placeholder_text="最高価格", width=80, height=40, corner_radius=15,
+            font=price_font, border_width=2, border_color="#535353", fg_color="#121212", text_color="#FFFFFF"
         )
         self.max_price_entry.grid(row=0, column=2, padx=(0, 10))
         
-        # Search button
         self.search_button = ctk.CTkButton(
-            self.form_frame,
-            text="🔍  検索実行",
-            height=40,
-            width=120,
-            corner_radius=20,
-            font=ctk.CTkFont(size=15, weight="bold"),
-            fg_color="#8B5CF6",
-            hover_color="#A78BFA",
-            text_color="#FFFFFF",
-            command=self.perform_search
+            self.form_frame, text="🔍  検索実行", height=40, width=120, corner_radius=20,
+            font=search_btn_font, fg_color="#8B5CF6", hover_color="#A78BFA",
+            text_color="#FFFFFF", command=self.perform_search
         )
         self.search_button.grid(row=0, column=3, padx=(0, 10))
         
-        # Site selection checkboxes (horizontal)
         self.site_vars = {}
-        for i, (site_id, scraper) in enumerate(self.available_sites.items()):
+        for i, (site_id, scraper_info) in enumerate(self.available_sites.items()):
             var = ctk.BooleanVar(value=True)
             self.site_vars[site_id] = var
             checkbox = ctk.CTkCheckBox(
-                self.form_frame,
-                text=scraper['name'],
-                variable=var,
-                font=ctk.CTkFont(size=14),
-                text_color="#FFFFFF",
-                fg_color="#8B5CF6",
-                hover_color="#A78BFA",
-                border_color="#535353"
+                self.form_frame, text=scraper_info['name'], variable=var, font=chkbox_font,
+                text_color="#FFFFFF", fg_color="#8B5CF6", hover_color="#A78BFA", border_color="#535353"
             )
             checkbox.grid(row=0, column=4+i, padx=5)
         
@@ -384,7 +319,7 @@ class SearchTab(ctk.CTkFrame):
                 'source': item['site'],
                 'price': item['price_formatted'],
                 'image_url': item.get('image_url')
-            })
+            }, self.font_family)
             card.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
         
         # Add pagination if there are more than 40 items
@@ -504,15 +439,10 @@ class SearchTab(ctk.CTkFrame):
 class ProductCard(ctk.CTkFrame):
     """Individual product card widget with black and purple design."""
     
-    def __init__(self, parent, product_data: Dict[str, Any]):
-        super().__init__(
-            parent, 
-            corner_radius=16,
-            fg_color="#282828",
-            border_width=0
-        )
-        
+    def __init__(self, parent, product_data: Dict[str, Any], font_family: str = "Meiryo UI"):
+        super().__init__(parent, corner_radius=16, fg_color="#282828", border_width=0)
         self.product_data = product_data
+        self.font_family = font_family
         self.create_card()
         
         # Add hover effect
@@ -550,7 +480,7 @@ class ProductCard(ctk.CTkFrame):
         # Product image placeholder or real image
         self.image_frame = ctk.CTkFrame(
             self.content_frame, 
-            height=200, 
+            height=150, 
             corner_radius=12,
             fg_color="#3E3E3E"
         )
@@ -577,28 +507,28 @@ class ProductCard(ctk.CTkFrame):
                 self.image_label = ctk.CTkLabel(
                     self.image_frame,
                     text="📷",
-                    font=ctk.CTkFont(size=56),
+                    font=ctk.CTkFont(family=self.font_family, size=48),
                     text_color="#B3B3B3"
                 )
         else:
             self.image_label = ctk.CTkLabel(
                 self.image_frame,
                 text="📷",
-                font=ctk.CTkFont(size=56),
+                font=ctk.CTkFont(family=self.font_family, size=48),
                 text_color="#B3B3B3"
             )
         self.image_label.place(relx=0.5, rely=0.5, anchor="center")
         
         # Product title (truncate if too long)
         title = self.product_data.get('title', 'Product Title')
-        max_chars = 60
+        max_chars = 50
         if len(title) > max_chars:
             title = title[:max_chars-3] + '...'
         self.title_label = ctk.CTkLabel(
             self.content_frame,
             text=title,
-            font=ctk.CTkFont(size=13, weight="bold"),
-            wraplength=180,
+            font=ctk.CTkFont(family=self.font_family, size=12, weight="bold"),
+            wraplength=160,
             anchor="w",
             justify="left",
             text_color="#FFFFFF"
@@ -610,22 +540,22 @@ class ProductCard(ctk.CTkFrame):
         self.source_label = ctk.CTkLabel(
             self.content_frame,
             text=source,
-            font=ctk.CTkFont(size=12, weight="normal"),
+            font=ctk.CTkFont(family=self.font_family, size=12, weight="normal"),
             text_color="#B3B3B3",
             anchor="w"
         )
         self.source_label.grid(row=2, column=0, sticky="w")
         
         # Spacer to fill space above price
-        self.spacer = ctk.CTkLabel(self.content_frame, text="", font=ctk.CTkFont(size=1))
+        self.spacer = ctk.CTkLabel(self.content_frame, text="", font=ctk.CTkFont(family=self.font_family, size=1))
         self.spacer.grid(row=3, column=0, sticky="nswe")
         
         # Price at the bottom/footer of the card
-        price = self.product_data.get('price', '¥---')
+        price = self.product_data.get('price_formatted', '¥---')
         self.price_label = ctk.CTkLabel(
             self,
             text=price,
-            font=ctk.CTkFont(size=15, weight="bold"),
+            font=ctk.CTkFont(family=self.font_family, size=14, weight="bold"),
             text_color="#8B5CF6",
             anchor="e"
         )
