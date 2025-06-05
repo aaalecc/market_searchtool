@@ -89,70 +89,81 @@ class SearchTab(ctk.CTkFrame):
         self.save_search_button.grid(row=0, column=1, padx=(0, 30), pady=(20, 0), sticky="e")
     
     def create_content(self, entry_font, price_font, search_btn_font, chkbox_font):
-        """Create Spotify-style content area."""
+        """Create Spotify-style content area with a two-row search form."""
         self.content_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.content_frame.grid(row=2, column=0, sticky="nsew", padx=30, pady=(0, 20))
         self.content_frame.grid_columnconfigure(0, weight=1)
-        self.content_frame.grid_rowconfigure(0, weight=0)
-        self.content_frame.grid_rowconfigure(1, weight=1)
+        self.content_frame.grid_rowconfigure(0, weight=0)  # Search container area
+        self.content_frame.grid_rowconfigure(1, weight=1)  # Results area
         
-        self.search_container = ctk.CTkFrame(self.content_frame, corner_radius=16, fg_color="#282828", border_width=0, height=70)
-        self.search_container.grid(row=0, column=0, sticky="ew", pady=(0, 10))
-        # self.search_container.grid_propagate(False) # Commented out
+        # Main search container (no fixed height, will auto-adjust)
+        self.search_container = ctk.CTkFrame(self.content_frame, corner_radius=16, fg_color="#282828", border_width=0)
+        self.search_container.grid(row=0, column=0, sticky="ew", pady=(0, 20)) # Increased bottom-padding for results separation
         self.search_container.grid_columnconfigure(0, weight=1)
-        
-        self.form_frame = ctk.CTkFrame(self.search_container, fg_color="transparent")
-        self.form_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
-        for i in range(7):
-            self.form_frame.grid_columnconfigure(i, weight=0)
-        self.form_frame.grid_columnconfigure(0, weight=1)
+        # Configure rows for top and bottom form parts
+        self.search_container.grid_rowconfigure(0, weight=0)
+        self.search_container.grid_rowconfigure(1, weight=0)
+
+        # Top row of the form (keywords, prices, search button)
+        self.top_form_frame = ctk.CTkFrame(self.search_container, fg_color="transparent")
+        self.top_form_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5)) # pady top and bottom internal to search_container
+        self.top_form_frame.grid_columnconfigure(0, weight=1) # Search entry expands
+        self.top_form_frame.grid_columnconfigure(1, weight=0)
+        self.top_form_frame.grid_columnconfigure(2, weight=0)
+        self.top_form_frame.grid_columnconfigure(3, weight=0)
         
         self.search_entry = ctk.CTkEntry(
-            self.form_frame, placeholder_text="検索したい商品名を入力してください...", height=40, width=320, corner_radius=20,
+            self.top_form_frame, placeholder_text="検索したい商品名を入力してください...", height=40, corner_radius=20,
             font=entry_font, border_width=2, border_color="#535353", fg_color="#121212",
             text_color="#FFFFFF", placeholder_text_color="#B3B3B3"
         )
         self.search_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
         
         self.min_price_entry = ctk.CTkEntry(
-            self.form_frame, placeholder_text="最低価格", width=80, height=40, corner_radius=15,
+            self.top_form_frame, placeholder_text="最低価格", width=100, height=40, corner_radius=15, # Increased width slightly
             font=price_font, border_width=2, border_color="#535353", fg_color="#121212", text_color="#FFFFFF"
         )
         self.min_price_entry.grid(row=0, column=1, padx=(0, 5))
         
         self.max_price_entry = ctk.CTkEntry(
-            self.form_frame, placeholder_text="最高価格", width=80, height=40, corner_radius=15,
+            self.top_form_frame, placeholder_text="最高価格", width=100, height=40, corner_radius=15, # Increased width slightly
             font=price_font, border_width=2, border_color="#535353", fg_color="#121212", text_color="#FFFFFF"
         )
         self.max_price_entry.grid(row=0, column=2, padx=(0, 10))
         
         self.search_button = ctk.CTkButton(
-            self.form_frame, text="🔍  検索実行", height=40, width=120, corner_radius=20,
+            self.top_form_frame, text="🔍  検索実行", height=40, width=130, corner_radius=20, # Increased width slightly
             font=search_btn_font, fg_color="#8B5CF6", hover_color="#A78BFA",
             text_color="#FFFFFF", command=self.perform_search
         )
-        self.search_button.grid(row=0, column=3, padx=(0, 10))
-        
+        self.search_button.grid(row=0, column=3, padx=(0, 0)) # No right padx if it's the last element
+
+        # Bottom row of the form (checkboxes)
+        self.bottom_form_frame = ctk.CTkFrame(self.search_container, fg_color="transparent")
+        self.bottom_form_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(5, 10)) # pady top and bottom internal
+        # Configure columns for checkboxes, let them pack naturally or distribute as needed
+        # For now, let them pack left
+
         self.site_vars = {}
         for i, (site_id, scraper_info) in enumerate(self.available_sites.items()):
             var = ctk.BooleanVar(value=True)
             self.site_vars[site_id] = var
             checkbox = ctk.CTkCheckBox(
-                self.form_frame, text=scraper_info['name'], variable=var, font=chkbox_font,
+                self.bottom_form_frame, text=scraper_info['name'], variable=var, font=chkbox_font,
                 text_color="#FFFFFF", fg_color="#8B5CF6", hover_color="#A78BFA", border_color="#535353"
             )
-            checkbox.grid(row=0, column=4+i, padx=5)
+            checkbox.pack(side="left", padx=5, pady=5) # Use pack for horizontal arrangement in bottom_form_frame
         
-        # Results container
+        # Results container (remains the same)
         self.results_container = ctk.CTkFrame(
             self.content_frame,
             corner_radius=20,
             fg_color="#282828",
             border_width=0
         )
-        self.results_container.grid(row=1, column=0, sticky="nsew")
+        self.results_container.grid(row=1, column=0, sticky="nsew", pady=(10,0)) # Added top padding
         
-        # Results scrollable frame
+        # Results scrollable frame (remains the same)
         self.results_frame = ctk.CTkScrollableFrame(
             self.results_container,
             fg_color="transparent",
@@ -160,7 +171,6 @@ class SearchTab(ctk.CTkFrame):
         )
         self.results_frame.pack(expand=True, fill="both", padx=20, pady=20)
         
-        # Configure grid columns for results
         for i in range(4):
             self.results_frame.grid_columnconfigure(i, weight=1, uniform="col")
     
