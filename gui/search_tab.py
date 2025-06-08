@@ -328,7 +328,8 @@ class SearchTab(ctk.CTkFrame):
                 'title': item['title'],
                 'source': item['site'],
                 'price': item['price_formatted'],
-                'image_url': item.get('image_url')
+                'image_url': item.get('image_url'),
+                'url': item['url']  # Add the URL
             }, self.font_family)
             card.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
         
@@ -476,17 +477,28 @@ class ProductCard(ctk.CTkFrame):
         self.bind("<Enter>", self.on_enter)
         self.bind("<Leave>", self.on_leave)
         
+        # Add click event
+        self.bind("<Button-1>", self.on_click)
+        
         # Bind to all child widgets
         self.bind_all_children()
     
     def bind_all_children(self):
-        """Bind hover events to all child widgets."""
+        """Bind hover and click events to all child widgets."""
         def bind_recursive(widget):
             widget.bind("<Enter>", self.on_enter)
             widget.bind("<Leave>", self.on_leave)
+            widget.bind("<Button-1>", self.on_click)
             for child in widget.winfo_children():
                 bind_recursive(child)
         bind_recursive(self)
+    
+    def on_click(self, event):
+        """Handle click event to open product URL."""
+        url = self.product_data.get('url')
+        if url:
+            import webbrowser
+            webbrowser.open(url)
     
     def create_card(self):
         """Create the product card layout."""
@@ -587,6 +599,15 @@ class ProductCard(ctk.CTkFrame):
             anchor="e"
         )
         self.price_label.grid(row=1, column=0, sticky="sew", pady=(0, 8), padx=0)
+        
+        # Add cursor change on hover
+        self.configure(cursor="hand2")
+        self.content_frame.configure(cursor="hand2")
+        self.image_frame.configure(cursor="hand2")
+        self.image_label.configure(cursor="hand2")
+        self.title_label.configure(cursor="hand2")
+        self.source_label.configure(cursor="hand2")
+        self.price_label.configure(cursor="hand2")
     
     def on_enter(self, event):
         """Hover effect."""

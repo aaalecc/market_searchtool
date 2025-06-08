@@ -123,11 +123,21 @@ class BackgroundTaskManager:
                 # Parse options
                 options = json.loads(search['options_json'])
                 keywords = options.get('keywords', [])
-                min_price = options.get('min_price', 0)
-                max_price = options.get('max_price', 1000000)
+                min_price = options.get('min_price', '')
+                max_price = options.get('max_price', '')
                 sites = options.get('sites', [])
+                
                 # Build command
-                cmd = [sys.executable, "test_scraper.py", "--sites", *sites, "--keywords", *keywords, "--min-price", str(min_price), "--max-price", str(max_price), "--db", current_db]
+                cmd = [sys.executable, "test_scraper.py", "--sites", *sites, "--keywords", *keywords]
+                
+                # Only add price parameters if they have values
+                if min_price and min_price.strip():
+                    cmd.extend(["--min-price", str(min_price)])
+                if max_price and max_price.strip():
+                    cmd.extend(["--max-price", str(max_price)])
+                
+                cmd.extend(["--db", current_db])
+                
                 logger.info(f"Running command: {' '.join(cmd)}")
                 process = subprocess.run(cmd, capture_output=True)
                 if process.returncode != 0:

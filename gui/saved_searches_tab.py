@@ -50,14 +50,22 @@ class SavedSearchesTab(ctk.CTkFrame):
         self.display_saved_searches(saved_search_name_font, options_font, item_count_font, switch_font, delete_button_font)
 
     def delete_saved_search(self, search_id, name):
-        if messagebox.askyesno("確認", f"「{name}」を削除してもよろしいですか？", font=(self.font_family, 12)):
-            delete_saved_search(search_id)
-            saved_search_name_font = ctk.CTkFont(family=self.font_family, size=18, weight="bold")
-            options_font = ctk.CTkFont(family=self.font_family, size=14)
-            item_count_font = ctk.CTkFont(family=self.font_family, size=14, weight="bold")
-            switch_font = ctk.CTkFont(family=self.font_family, size=14)
-            delete_button_font = ctk.CTkFont(family=self.font_family, size=14, weight="bold")
-            self.display_saved_searches(saved_search_name_font, options_font, item_count_font, switch_font, delete_button_font)
+        """Delete a saved search and all its associated items."""
+        if messagebox.askyesno("確認", f"「{name}」を削除してもよろしいですか？"):
+            try:
+                # Delete the saved search (this will cascade delete all related items)
+                if delete_saved_search(search_id):
+                    # Refresh the display
+                    self.display_saved_searches(
+                        ctk.CTkFont(family=self.font_family, size=18, weight="bold"),
+                        ctk.CTkFont(family=self.font_family, size=14),
+                        ctk.CTkFont(family=self.font_family, size=14, weight="bold"),
+                        ctk.CTkFont(family=self.font_family, size=14),
+                        ctk.CTkFont(family=self.font_family, size=14, weight="bold")
+                    )
+            except Exception as e:
+                logger.error(f"Error deleting saved search {search_id}: {e}")
+                messagebox.showerror("エラー", "検索の削除中にエラーが発生しました。")
 
     def toggle_notifications(self, search_id, switch_widget):
         update_saved_search_notifications(search_id, bool(switch_widget.get()))
