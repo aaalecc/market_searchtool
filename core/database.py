@@ -390,6 +390,7 @@ class DatabaseManager:
         """
         Add new items to the new_items table for the feed.
         Only adds items that don't already exist in saved_search_items.
+        Cleans up items older than 24 hours before adding new items.
         
         Args:
             saved_search_id: ID of the saved search
@@ -400,6 +401,13 @@ class DatabaseManager:
         """
         added_count = 0
         with self.get_connection() as conn:
+            # First, clean up items older than 24 hours
+            conn.execute("""
+                DELETE FROM new_items 
+                WHERE found_at < datetime('now', '-1 day')
+            """)
+            conn.commit()
+            
             for item in items:
                 try:
                     # Check if item already exists in saved_search_items
@@ -586,6 +594,7 @@ def delete_saved_search(saved_search_id: int) -> bool:
     return db.delete_saved_search(saved_search_id)
 
 def add_new_items(saved_search_id: int, items: List[Dict[str, Any]]) -> int:
+    """Add new items to the new_items table for the feed."""
     return db.add_new_items(saved_search_id, items)
 
 def get_new_items(limit: int = 10, offset: int = 0, site: str = None) -> Dict[str, List[Dict]]:

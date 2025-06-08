@@ -154,7 +154,7 @@ class BackgroundTaskManager:
                 logger.error(f"Error processing saved search {search_name}: {e}", exc_info=True)
                 continue
         
-        logger.info("\nNo new items were added to the feed in any saved searches this cycle.")
+        logger.info("\nCompleted processing all saved searches.")
 
 # Create a global instance
 task_manager = BackgroundTaskManager()
