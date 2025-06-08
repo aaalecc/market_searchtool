@@ -160,13 +160,13 @@ class FeedTab(ctk.CTkFrame):
         # Create scrollable frame for items
         items_frame = ctk.CTkScrollableFrame(main_frame, fg_color="transparent")
         items_frame.pack(fill="both", expand=True)
-        
+
         # Configure grid for 4 cards per row
         items_frame.grid_columnconfigure(0, weight=1)
         items_frame.grid_columnconfigure(1, weight=1)
         items_frame.grid_columnconfigure(2, weight=1)
         items_frame.grid_columnconfigure(3, weight=1)
-        
+
         # Sort items by price
         sorted_items = sorted(items, key=lambda x: x.get('price_value', float('inf')))
         
@@ -191,7 +191,7 @@ class FeedTab(ctk.CTkFrame):
             row = i // 4
             col = i % 4
             card.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
-    
+        
     def _go_back_to_feed(self):
         """Return to the feed view."""
         self.current_view = "feed"

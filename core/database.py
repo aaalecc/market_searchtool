@@ -389,12 +389,11 @@ class DatabaseManager:
     def add_new_items(self, saved_search_id: int, items: List[Dict[str, Any]]) -> int:
         """
         Add new items to the new_items table for the feed.
-        Only adds items that don't already exist in saved_search_items.
         Cleans up items older than 24 hours before adding new items.
         
         Args:
             saved_search_id: ID of the saved search
-            items: List of item dictionaries
+            items: List of item dictionaries that have been confirmed as new
             
         Returns:
             Number of new items added
@@ -408,43 +407,39 @@ class DatabaseManager:
             """)
             conn.commit()
             
+            logger.info(f"Adding {len(items)} new items to feed for search_id {saved_search_id}")
+            
             for item in items:
                 try:
-                    # Check if item already exists in saved_search_items
-                    existing = conn.execute(
-                        """SELECT 1 FROM saved_search_items 
-                           WHERE saved_search_id = ? AND title = ? AND price_value = ?""",
-                        (saved_search_id, item['title'], item.get('price_value'))
-                    ).fetchone()
-                    
-                    if not existing:
-                        # Insert into new_items
-                        conn.execute("""
-                            INSERT INTO new_items (
-                                saved_search_id, title, price_value, currency, price_formatted,
-                                url, site, image_url, seller, location, condition, shipping_info
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            saved_search_id,
-                            item['title'],
-                            item.get('price_value'),
-                            item.get('currency', 'JPY'),
-                            item.get('price_formatted'),
-                            item['url'],
-                            item['site'],
-                            item.get('image_url'),
-                            item.get('seller'),
-                            item.get('location'),
-                            item.get('condition'),
-                            item.get('shipping_info', '{}')
-                        ))
-                        added_count += 1
+                    # Insert into new_items
+                    conn.execute("""
+                        INSERT INTO new_items (
+                            saved_search_id, title, price_value, currency, price_formatted,
+                            url, site, image_url, seller, location, condition, shipping_info
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        saved_search_id,
+                        item['title'],
+                        item.get('price_value'),
+                        item.get('currency', 'JPY'),
+                        item.get('price_formatted'),
+                        item['url'],
+                        item['site'],
+                        item.get('image_url'),
+                        item.get('seller'),
+                        item.get('location'),
+                        item.get('condition'),
+                        item.get('shipping_info', '{}')
+                    ))
+                    added_count += 1
+                    logger.debug(f"Added new item to feed: {item['url']}")
                         
                 except Exception as e:
                     logger.warning(f"Failed to add new item {item.get('url')}: {e}")
                     continue
             
             conn.commit()
+            logger.info(f"Successfully added {added_count} new items to feed for search_id {saved_search_id}")
         return added_count
 
     def get_new_items(self, limit: int = 10, offset: int = 0, site: str = None) -> Dict[str, List[Dict]]:
@@ -593,10 +588,6 @@ def delete_saved_search(saved_search_id: int) -> bool:
     """Delete a saved search and its associated items."""
     return db.delete_saved_search(saved_search_id)
 
-def add_new_items(saved_search_id: int, items: List[Dict[str, Any]]) -> int:
-    """Add new items to the new_items table for the feed."""
-    return db.add_new_items(saved_search_id, items)
-
 def get_new_items(limit: int = 10, offset: int = 0, site: str = None) -> Dict[str, List[Dict]]:
     return db.get_new_items(limit, offset, site)
 
@@ -604,4 +595,8 @@ def mark_items_as_viewed(item_ids: List[int]) -> None:
     return db.mark_items_as_viewed(item_ids)
 
 def get_new_items_count(site: str = None) -> Dict[str, int]:
-    return db.get_new_items_count(site) 
+    return db.get_new_items_count(site)
+
+def add_new_items(saved_search_id: int, items: List[Dict[str, Any]]) -> int:
+    """Add new items to the feed for a saved search."""
+    return db.add_new_items(saved_search_id, items) 

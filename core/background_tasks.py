@@ -15,7 +15,8 @@ import sqlite3
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 
-from core.database import get_saved_searches, get_saved_search_items, add_new_items
+from core.database import get_saved_searches, get_saved_search_items, add_new_items, get_new_items_count
+from notifications.desktop_notifier import notify_scraper_results
 
 # Configure logging with more detailed format
 logging.basicConfig(
@@ -35,7 +36,7 @@ class BackgroundTaskManager:
         """Initialize the background task manager."""
         self.running = False
         self.thread = None
-        self.search_interval = 600  # 10 minutes in seconds
+        self.search_interval = 1800  # 30 minutes in seconds
         self.last_search_time = None
         logger.info("Background task manager initialized")
     
@@ -106,6 +107,7 @@ class BackgroundTaskManager:
             logger.info("No saved searches with notifications enabled.")
             return
 
+        search_results = []
         for search in active_searches:
             search_id = search['id']
             search_name = search.get('name', f"Search {search_id}")
@@ -142,10 +144,24 @@ class BackgroundTaskManager:
                 prev_urls = {item['url'] for item in prev_items}
                 new_items = [item for item in current_items if item['url'] not in prev_urls]
                 logger.info(f"Detected {len(new_items)} new items for {search_name}")
+                
+                # Log the URLs of new items for debugging
+                if new_items:
+                    logger.info("New item URLs:")
+                    for item in new_items:
+                        logger.info(f"  - {item['url']}")
+                
                 # Add new items to feed
                 if new_items:
                     added_count = add_new_items(search_id, new_items)
                     logger.info(f"Added {added_count} new items to feed for {search_name}")
+                    # Get current total for this search
+                    current_total = len(get_saved_search_items(search_id))
+                    search_results.append({
+                        'search_name': search_name,
+                        'items_added': added_count,
+                        'current_total': current_total
+                    })
                 # Replace previous snapshot
                 if os.path.exists(prev_db):
                     os.remove(prev_db)
@@ -154,7 +170,12 @@ class BackgroundTaskManager:
                 logger.error(f"Error processing saved search {search_name}: {e}", exc_info=True)
                 continue
         
-        logger.info("\nCompleted processing all saved searches.")
+        # Get total items count and send notification
+        if search_results:
+            total_items = sum(count['current_total'] for count in search_results)
+            notify_scraper_results(search_results, total_items)
+        else:
+            logger.info("\nNo new items were added to the feed in any saved searches this cycle.")
 
 # Create a global instance
 task_manager = BackgroundTaskManager()
