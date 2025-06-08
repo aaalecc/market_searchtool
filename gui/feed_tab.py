@@ -1,361 +1,201 @@
 """
 Feed Tab for Market Search Tool
-CustomTkinter interface for monitoring new listings with a modern grid layout.
+CustomTkinter interface for monitoring new listings.
 """
 
 import customtkinter as ctk
 import logging
-from PIL import Image, ImageTk, ImageOps
-import requests
-from io import BytesIO
 from typing import List, Dict, Any
-from customtkinter import CTkImage
+from datetime import datetime
+
+from core.database import get_new_items, get_saved_searches, get_new_items_count
+from gui.search_tab import ProductCard
 
 logger = logging.getLogger(__name__)
 
-class ProductCard(ctk.CTkFrame):
-    """Individual product card widget with black and purple design."""
-    
-    def __init__(self, parent, product_data: Dict[str, Any]):
-        super().__init__(
-            parent, 
-            corner_radius=16,  # More rounded like Spotify
-            fg_color="#282828",  # Spotify's actual card background
-            border_width=0  # No border for cleaner look
-        )
-        
-        self.product_data = product_data
-        self.create_card()
-        
-        # Add Spotify-style hover effect
-        self.bind("<Enter>", self.on_enter)
-        self.bind("<Leave>", self.on_leave)
-        
-        # Bind to all child widgets for better hover experience
-        self.bind_all_children()
-    
-    def bind_all_children(self):
-        """Bind hover events to all child widgets."""
-        def bind_recursive(widget):
-            widget.bind("<Enter>", self.on_enter)
-            widget.bind("<Leave>", self.on_leave)
-            for child in widget.winfo_children():
-                bind_recursive(child)
-        bind_recursive(self)
-    
-    def create_card(self):
-        """Create the product card layout with Spotify-style design."""
-        # Configure grid for the card itself
-        self.grid_rowconfigure(0, weight=1)  # Content area
-        self.grid_rowconfigure(1, weight=0)  # Price/footer
-        self.grid_columnconfigure(0, weight=1)
-        
-        # Content frame (image, title, source, spacer)
-        self.content_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.content_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=(0, 0))
-        self.content_frame.grid_columnconfigure(0, weight=1)
-        self.content_frame.grid_rowconfigure(0, weight=0)  # image
-        self.content_frame.grid_rowconfigure(1, weight=0)  # title
-        self.content_frame.grid_rowconfigure(2, weight=0)  # source
-        self.content_frame.grid_rowconfigure(3, weight=1)  # spacer
-        
-        # Product image placeholder or real image
-        self.image_frame = ctk.CTkFrame(
-            self.content_frame, 
-            height=200, 
-            corner_radius=12,
-            fg_color="#3E3E3E"
-        )
-        self.image_frame.grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 12))
-        self.image_frame.grid_propagate(False)
-        
-        image_url = self.product_data.get('image_url')
-        if image_url:
-            try:
-                response = requests.get(image_url, timeout=5)
-                img_data = BytesIO(response.content)
-                pil_image = Image.open(img_data).convert("RGBA")
-                target_size = (220, 140)
-                pil_image = ImageOps.contain(pil_image, target_size, method=Image.LANCZOS)
-                background = Image.new("RGBA", target_size, (62, 62, 62, 255))
-                background.paste(pil_image, ((target_size[0] - pil_image.width) // 2, (target_size[1] - pil_image.height) // 2))
-                self.ctk_image = CTkImage(light_image=background, size=target_size)
-                self.image_label = ctk.CTkLabel(
-                    self.image_frame,
-                    image=self.ctk_image,
-                    text=""
-                )
-            except Exception as e:
-                self.image_label = ctk.CTkLabel(
-                    self.image_frame,
-                    text="📷",
-                    font=ctk.CTkFont(size=56),
-                    text_color="#B3B3B3"
-                )
-        else:
-            self.image_label = ctk.CTkLabel(
-                self.image_frame,
-                text="📷",
-                font=ctk.CTkFont(size=56),
-                text_color="#B3B3B3"
-            )
-        self.image_label.place(relx=0.5, rely=0.5, anchor="center")
-        
-        # Product title (truncate if too long)
-        title = self.product_data.get('title', 'Product Title')
-        max_chars = 60
-        if len(title) > max_chars:
-            title = title[:max_chars-3] + '...'
-        self.title_label = ctk.CTkLabel(
-            self.content_frame,
-            text=title,
-            font=ctk.CTkFont(size=13, weight="bold"),
-            wraplength=180,
-            anchor="w",
-            justify="left",
-            text_color="#FFFFFF"
-        )
-        self.title_label.grid(row=1, column=0, sticky="ew", pady=(0, 8))
-        
-        # Product source
-        source = self.product_data.get('source', 'Marketplace')
-        self.source_label = ctk.CTkLabel(
-            self.content_frame,
-            text=source,
-            font=ctk.CTkFont(size=12, weight="normal"),
-            text_color="#B3B3B3",
-            anchor="w"
-        )
-        self.source_label.grid(row=2, column=0, sticky="w")
-        
-        # Spacer to fill space above price
-        self.spacer = ctk.CTkLabel(self.content_frame, text="", font=ctk.CTkFont(size=1))
-        self.spacer.grid(row=3, column=0, sticky="nswe")
-        
-        # Price at the bottom/footer of the card
-        price = self.product_data.get('price', '¥---')
-        self.price_label = ctk.CTkLabel(
-            self,
-            text=price,
-            font=ctk.CTkFont(size=15, weight="bold"),
-            text_color="#8B5CF6",
-            anchor="e"
-        )
-        self.price_label.grid(row=1, column=0, sticky="sew", pady=(0, 8), padx=0)
-    
-    def on_enter(self, event):
-        """Spotify-style hover effect."""
-        self.configure(fg_color="#3E3E3E")  # Lighter on hover
-    
-    def on_leave(self, event):
-        """Reset hover effect."""
-        self.configure(fg_color="#282828")  # Back to normal
-
 class FeedTab(ctk.CTkFrame):
-    """Feed tab with black and purple design."""
+    """Feed tab with a minimal design, showing saved searches and their items."""
     
-    def __init__(self, parent):
+    def __init__(self, parent, font=None):
         """Initialize the feed tab."""
         super().__init__(parent, corner_radius=0, fg_color="transparent")
         
-        logger.info("Initializing Feed tab...")
+        self.font = font
+        self.font_family = self.font.cget('family') if self.font else "Meiryo UI"
+        logger.info(f"{self.__class__.__name__} initialized with font family: {self.font_family}")
         
-        # Configure layout
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
-        
-        # Enhanced sample data
-        self.sample_products = [
-            {
-                'title': 'ユニクロ プレミアムTシャツ',
-                'source': 'ヤフオク',
-                'price': '¥2,500',
-                'image_url': None
-            },
-            {
-                'title': 'ナイキ ベースボールキャップ',
-                'source': 'メルカリ',
-                'price': '¥1,800',
-                'image_url': None
-            },
-            {
-                'title': 'リーバイス ヴィンテージデニム',
-                'source': 'ヤフーフリマ',
-                'price': '¥4,200',
-                'image_url': None
-            },
-            {
-                'title': 'ポケモンカード リザードン GX',
-                'source': '楽天',
-                'price': '¥15,000',
-                'image_url': None
-            },
-            {
-                'title': 'ナイキ エアジョーダン1 レトロ',
-                'source': 'Grailed',
-                'price': '¥22,000',
-                'image_url': None
-            },
-            {
-                'title': 'シュプリーム ボックスロゴTシャツ',
-                'source': 'メルカリ',
-                'price': '¥35,000',
-                'image_url': None
-            },
-            {
-                'title': 'アップル Watch Series 9',
-                'source': '楽天',
-                'price': '¥45,000',
-                'image_url': None
-            },
-            {
-                'title': 'ストーンアイランド ジャケット',
-                'source': 'Grailed',
-                'price': '¥28,000',
-                'image_url': None
-            }
-        ]
-        
-        # Create the interface
-        self.create_widgets()
-        
-        logger.info("Feed tab initialized")
+        self.current_view = "feed"  # Track current view: "feed" or "items"
+        self.current_search_name = None
+        self.current_items = None
+        self.refresh_display()
     
-    def create_widgets(self):
-        """Create the feed interface with modern design."""
-        # Header section
-        self.create_header()
-        
-        # Create scrollable content area
-        self.create_content_area()
-        
-        # Load sample products
-        self.load_products()
-    
-    def create_header(self):
-        """Create modern header."""
-        self.header_frame = ctk.CTkFrame(
-            self, 
-            height=100, 
-            corner_radius=0, 
-            fg_color="transparent"
-        )
-        self.header_frame.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
-        self.header_frame.grid_columnconfigure(1, weight=1)
-        self.header_frame.grid_propagate(False)
-        
-        # Title section with modern typography
-        self.title_frame = ctk.CTkFrame(self.header_frame, fg_color="transparent")
-        self.title_frame.grid(row=0, column=0, sticky="w", padx=30, pady=25)
-        
-        self.title_label = ctk.CTkLabel(
-            self.title_frame,
-            text="あなたのフィード",
-            font=ctk.CTkFont(size=36, weight="bold"),  # Larger Japanese font
-            text_color="#FFFFFF",  # Pure white
-            anchor="w"
-        )
-        self.title_label.pack(anchor="w")
-        
-        # Subtitle with item count
-        self.filter_label = ctk.CTkLabel(
-            self.title_frame,
-            text="新着順 • 8件の商品が見つかりました",
-            font=ctk.CTkFont(size=15, weight="normal"),  # Fixed font weight
-            text_color="#B3B3B3",  # Spotify secondary text
-            anchor="w"
-        )
-        self.filter_label.pack(anchor="w", pady=(4, 0))
-        
-        # Purple-style refresh button
-        self.refresh_button = ctk.CTkButton(
-            self.header_frame,
-            text="🔄  更新",
-            width=130,
-            height=42,
-            corner_radius=21,  # Very rounded
-            font=ctk.CTkFont(size=15, weight="bold"),
-            fg_color="#8B5CF6",  # Purple accent
-            hover_color="#A78BFA",
-            text_color="#FFFFFF",  # White text on purple
-            command=self.refresh_feed
-        )
-        self.refresh_button.grid(row=0, column=2, padx=30, pady=25, sticky="e")
-    
-    def create_content_area(self):
-        """Create Spotify-style scrollable area."""
-        # Create scrollable frame
-        self.scroll_frame = ctk.CTkScrollableFrame(
-            self,
-            corner_radius=0,
-            fg_color="transparent",
-            scrollbar_button_color="#B3B3B3",
-            scrollbar_button_hover_color="#FFFFFF"
-        )
-        self.scroll_frame.grid(row=1, column=0, sticky="nsew", padx=0, pady=0)
-        
-        # Responsive grid (3-4 columns)
-        for i in range(4):
-            self.scroll_frame.grid_columnconfigure(i, weight=1, uniform="col")
-    
-    def load_products(self):
-        """Load products with Spotify-style grid."""
-        # Clear existing
-        for widget in self.scroll_frame.winfo_children():
+    def refresh_display(self):
+        """Re-fetches data and refreshes the feed interface."""
+        # Clear existing widgets before redrawing
+        for widget in self.winfo_children():
             widget.destroy()
         
-        # Create Spotify-style product cards
-        for index, product in enumerate(self.sample_products):
-            row = index // 4
-            col = index % 4
+        if self.current_view == "feed":
+            self._show_feed_view()
+        else:
+            self._show_items_view(self.current_search_name, self.current_items)
+    
+    def _show_feed_view(self):
+        """Show the main feed view with saved searches."""
+        title_font = ctk.CTkFont(family=self.font_family, size=36, weight="bold")
+        self.title_label = ctk.CTkLabel(self, text="フィード", font=title_font, text_color="#FFFFFF", anchor="w")
+        self.title_label.pack(anchor="nw", padx=30, pady=25, fill="x")
+
+        # Fetch the latest data
+        all_new_items_by_search = get_new_items(limit=100)
+        # Ensure we get the latest saved searches, especially their notification_enabled status
+        saved_searches = [s for s in get_saved_searches() if s.get('notifications_enabled')]
+        
+        message_font = ctk.CTkFont(family=self.font_family, size=18)
+        section_header_font = ctk.CTkFont(family=self.font_family, size=20, weight="bold")
+        info_font = ctk.CTkFont(family=self.font_family, size=16)
+        button_font = ctk.CTkFont(family=self.font_family, size=14, weight="bold")
+
+        if not saved_searches:
+            empty_label = ctk.CTkLabel(self, text="有効な通知設定の保存済み検索はありません。", font=message_font, text_color="#B3B3B3", anchor="center")
+            empty_label.pack(anchor="center", padx=40, pady=20, fill="x", expand=True)
+            return
+        
+        found_items_for_any_search = False
+        for search in saved_searches:
+            search_id = search['id']
+            search_name = search.get('name', f"Search {search_id}")
             
-            # Create Spotify-style card
-            card = ProductCard(self.scroll_frame, product)
-            card.grid(
-                row=row, 
-                column=col, 
-                padx=15, 
-                pady=15, 
-                sticky="ew"
+            search_card_container = ctk.CTkFrame(self, fg_color="#282828", border_width=1, border_color="#404040", corner_radius=12)
+            search_card_container.pack(anchor="nw", fill="x", padx=30, pady=(10, 5))
+            
+            # Header with search name
+            header_frame = ctk.CTkFrame(search_card_container, fg_color="transparent")
+            header_frame.pack(fill="x", padx=15, pady=(10, 5))
+            
+            section_label = ctk.CTkLabel(header_frame, text=search_name, font=section_header_font, text_color="#8B5CF6", anchor="w")
+            section_label.pack(side="left", padx=0, pady=0)
+            
+            # Get item counts
+            items = all_new_items_by_search.get(search_name, [])
+            if not items:
+                empty_item_label = ctk.CTkLabel(search_card_container, text="新規アイテムはありません", font=info_font, text_color="#B3B3B3", anchor="w")
+                empty_item_label.pack(anchor="nw", padx=15, pady=(0, 10), fill="x")
+                continue
+            
+            found_items_for_any_search = True
+            
+            # Count items by site
+            site_counts = {}
+            for item in items:
+                site = item.get('site', 'Unknown')
+                site_counts[site] = site_counts.get(site, 0) + 1
+            
+            # Create info frame
+            info_frame = ctk.CTkFrame(search_card_container, fg_color="transparent")
+            info_frame.pack(fill="x", padx=15, pady=(0, 10))
+            
+            # Total items count
+            total_count_label = ctk.CTkLabel(info_frame, 
+                text=f"合計: {len(items)}件の新規アイテム", 
+                font=info_font, 
+                text_color="#FFFFFF"
             )
+            total_count_label.pack(anchor="w", pady=(0, 5))
+            
+            # Site-specific counts
+            for site, count in site_counts.items():
+                site_label = ctk.CTkLabel(info_frame,
+                    text=f"{site}: {count}件",
+                    font=info_font,
+                    text_color="#B3B3B3"
+                )
+                site_label.pack(anchor="w", pady=(0, 2))
+            
+            # View button
+            view_button = ctk.CTkButton(
+                search_card_container,
+                text="アイテムを表示",
+                font=button_font,
+                command=lambda s=search_name, i=items: self._show_items_view(s, i)
+            )
+            view_button.pack(anchor="e", padx=15, pady=(0, 10))
+
+        if not found_items_for_any_search and saved_searches:
+            overall_empty_label = ctk.CTkLabel(self, text="全ての有効な検索に新規アイテムはありません。", font=message_font, text_color="#B3B3B3", anchor="center")
+            overall_empty_label.pack(anchor="center", padx=40, pady=20, fill="x", expand=True)
+
+    def _show_items_view(self, search_name: str, items: List[Dict]):
+        """Show items view in the current window."""
+        # Store current state
+        self.current_view = "items"
+        self.current_search_name = search_name
+        self.current_items = items
         
-        # Bottom spacing
-        spacer_frame = ctk.CTkFrame(self.scroll_frame, height=50, fg_color="transparent")
-        spacer_frame.grid(row=(len(self.sample_products)//4) + 1, column=0, columnspan=4, pady=25)
-    
-    def refresh_feed(self):
-        """Purple-style refresh with smooth animations."""
-        logger.info("Refreshing feed...")
+        # Clear existing widgets
+        for widget in self.winfo_children():
+            widget.destroy()
         
-        # Purple-style loading
-        self.refresh_button.configure(
-            text="⟳  更新中...",
-            state="disabled",
-            fg_color="#535353"  # Disabled gray
+        # Create main frame
+        main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        main_frame.pack(fill="both", expand=True, padx=30, pady=30)
+        
+        # Header with title and back button
+        header_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        header_frame.pack(fill="x", pady=(0, 20))
+        
+        title_font = ctk.CTkFont(family=self.font_family, size=24, weight="bold")
+        title_label = ctk.CTkLabel(header_frame, text=search_name, font=title_font, text_color="#FFFFFF")
+        title_label.pack(side="left")
+        
+        back_button = ctk.CTkButton(
+            header_frame,
+            text="戻る",
+            font=ctk.CTkFont(family=self.font_family, size=14, weight="bold"),
+            command=self._go_back_to_feed
         )
+        back_button.pack(side="right")
         
-        def complete_refresh():
-            self.refresh_button.configure(
-                text="✓  完了",
-                fg_color="#8B5CF6",
-                state="normal"
-            )
-            # Reset after delay
-            self.after(1200, lambda: self.refresh_button.configure(
-                text="🔄  更新",
-                fg_color="#8B5CF6"
-            ))
+        # Create scrollable frame for items
+        items_frame = ctk.CTkScrollableFrame(main_frame, fg_color="transparent")
+        items_frame.pack(fill="both", expand=True)
+
+        # Configure grid for 4 cards per row
+        items_frame.grid_columnconfigure(0, weight=1)
+        items_frame.grid_columnconfigure(1, weight=1)
+        items_frame.grid_columnconfigure(2, weight=1)
+        items_frame.grid_columnconfigure(3, weight=1)
+
+        # Sort items by price
+        sorted_items = sorted(items, key=lambda x: x.get('price_value', float('inf')))
         
-        # Simulate refresh
-        self.load_products()
-        self.after(900, complete_refresh)
-    
-    def add_product(self, product_data: Dict[str, Any]):
-        """Add a new product to the feed."""
-        self.sample_products.insert(0, product_data)
-        self.load_products()
-    
-    def clear_feed(self):
-        """Clear all products from the feed."""
-        self.sample_products.clear()
-        self.load_products() 
+        # Add product cards
+        for i, item in enumerate(sorted_items):
+            # Format price
+            price_value = item.get('price_value', 0)
+            price_formatted = item.get('price_formatted', '')
+            if not price_formatted and price_value:
+                price_formatted = f"¥{price_value:,.0f}"
+            
+            # Prepare product_data for ProductCard
+            product_data = {
+                'title': item.get('title', ''),
+                'image_url': item.get('image_url', None),
+                'price': price_formatted,
+                'source': item.get('site', item.get('source', '')),
+                'url': item.get('url', '')
+            }
+            
+            card = ProductCard(items_frame, product_data, font_family=self.font_family)
+            row = i // 4
+            col = i % 4
+            card.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+        
+    def _go_back_to_feed(self):
+        """Return to the feed view."""
+        self.current_view = "feed"
+        self.current_search_name = None
+        self.current_items = None
+        self.refresh_display()
+

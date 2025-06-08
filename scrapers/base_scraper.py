@@ -1,1 +1,0 @@
-# Base scraper class with common functionality for both requests and Selenium scrapers 

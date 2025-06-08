@@ -49,6 +49,13 @@ def setup_logging():
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(log_level)
         console_handler.setFormatter(formatter)
+        # Attempt to set encoding for the stream if possible (Python 3.7+ for StreamHandler)
+        try:
+            console_handler.stream.reconfigure(encoding='utf-8')
+        except AttributeError:
+            # Fallback for older versions or if reconfigure is not available
+            # This might mean console encoding issues persist on some systems
+            pass 
         root_logger.addHandler(console_handler)
     
     # File handler
@@ -58,7 +65,8 @@ def setup_logging():
         file_handler = RotatingFileHandler(
             log_file,
             maxBytes=LOGGING_CONFIG['max_log_size_mb'] * 1024 * 1024,
-            backupCount=LOGGING_CONFIG['backup_count']
+            backupCount=LOGGING_CONFIG['backup_count'],
+            encoding='utf-8'  # Explicitly set UTF-8 for file handler too
         )
         file_handler.setLevel(log_level)
         file_handler.setFormatter(formatter)

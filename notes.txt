@@ -1,3 +1,11 @@
+いつのスナップショットと比較？（もともとの検索と比較するか、一個前の裏処理と比較するか）
+フィード何個まで？（どうやって優先順位決める？）
+
+裏処理と同時にDISCORD通知関数実行
+
+
+
+
 COMMANDS
     - GIT BRANCH COMMANDS
         git branch "branch_name"
