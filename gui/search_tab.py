@@ -246,8 +246,9 @@ class SearchTab(ctk.CTkFrame):
                     print("Command errors:", process.stderr)
                 
                 if process.returncode == 0:
-                    # Get database stats filtered by current query
-                    stats = get_database_stats(query=query)
+                    # Get database stats filtered by current query - normalize query format
+                    normalized_query = ' '.join(query.split())
+                    stats = get_database_stats(query=normalized_query)
                     print("Database stats:", stats)  # Debug print
                     
                     # Update UI with results
@@ -310,8 +311,8 @@ class SearchTab(ctk.CTkFrame):
         # Calculate offset for current page
         offset = (self.current_page - 1) * self.items_per_page
         
-        # Get current search query
-        current_query = self.search_entry.get().strip()
+        # Get current search query - join keywords with spaces to match scraper format
+        current_query = ' '.join(self.search_entry.get().strip().split())
         
         # Get search results from database, filtered by current query
         results = get_search_results(
@@ -445,26 +446,42 @@ class SearchTab(ctk.CTkFrame):
             'max_price': max_price,
             'sites': selected_sites
         }
+        
         # Prompt for a name using CTkInputDialog
         dialog = CTkInputDialog(text="この検索の名前を入力してください:", title="保存名", font=(self.font_family, 12))
         name = dialog.get_input()
         if not name:
             return  # User cancelled or left blank
+            
         # Save search options with name
         saved_search_id = create_saved_search(options, name)
-        # Gather all currently displayed items (all pages)
-        all_items = []
-        offset = 0
-        # Temporarily, we will just save the items from the current view. 
-        # A more robust solution might involve re-fetching all items if pagination is deep.
-        current_results_on_display = get_search_results(limit=self.items_per_page, offset=(self.current_page -1) * self.items_per_page, sort_by="price_value", sort_order="asc")
         
         if saved_search_id:
-            if current_results_on_display: # Only add items if there are results
-                add_saved_search_items(saved_search_id, current_results_on_display)
-                CTkMessagebox(title="保存完了", message=f"「{name}」が{len(current_results_on_display)}件のアイテムと共に保存されました。", icon="check", font=(self.font_family, 12))
+            # Get all items for the current search query
+            current_query = ' '.join(keywords)
+            all_items = get_search_results(
+                query=current_query,
+                limit=1000,  # Get all items
+                offset=0,
+                sort_by="price_value",
+                sort_order="asc"
+            )
+            
+            if all_items:
+                add_saved_search_items(saved_search_id, all_items)
+                CTkMessagebox(
+                    title="保存完了", 
+                    message=f"「{name}」が{len(all_items)}件のアイテムと共に保存されました。", 
+                    icon="check", 
+                    font=(self.font_family, 12)
+                )
             else:
-                 CTkMessagebox(title="保存完了", message=f"「{name}」が保存されました。(アイテムなし)", icon="check", font=(self.font_family, 12))
+                CTkMessagebox(
+                    title="保存完了", 
+                    message=f"「{name}」が保存されました。(アイテムなし)", 
+                    icon="check", 
+                    font=(self.font_family, 12)
+                )
 
             # Refresh the Saved Searches tab if possible
             main_window = self.winfo_toplevel()
@@ -479,7 +496,12 @@ class SearchTab(ctk.CTkFrame):
                 del_btn_font = ctk.CTkFont(family=sst_font_family, size=14, weight="bold")
                 main_window.saved_searches_tab.display_saved_searches(name_font, opts_font, count_font, sw_font, del_btn_font)
         else:
-            CTkMessagebox(title="保存失敗", message="検索の保存中にエラーが発生しました。", icon="cancel", font=(self.font_family, 12))
+            CTkMessagebox(
+                title="保存失敗", 
+                message="検索の保存中にエラーが発生しました。", 
+                icon="cancel", 
+                font=(self.font_family, 12)
+            )
 
 class ProductCard(ctk.CTkFrame):
     """Individual product card widget with black and purple design."""

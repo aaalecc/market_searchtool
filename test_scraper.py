@@ -18,7 +18,7 @@ from io import BytesIO
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
 def format_price(price: float) -> str:
@@ -41,6 +41,13 @@ def main():
     search_query = ' '.join(keywords)
     db_path = args.db
 
+    # Log search parameters
+    print(f"\nSearch Parameters:", file=sys.stderr)
+    print(f"Query: {search_query}", file=sys.stderr)
+    print(f"Price Range: {format_price(min_price)} - {format_price(max_price)}", file=sys.stderr)
+    print(f"Sites: {', '.join(args.sites)}", file=sys.stderr)
+    print(f"Database: {db_path}\n", file=sys.stderr)
+
     # Ensure the output directory exists
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
@@ -50,6 +57,10 @@ def main():
     # Clear old search results before starting any scraping
     print("Clearing old search results...", file=sys.stderr)
     db.clear_old_search_results()
+
+    # Verify database is empty after clearing
+    stats = db.get_database_stats()
+    print(f"Database after clearing: {stats}", file=sys.stderr)
 
     search_options = {
         'keywords': keywords,
@@ -63,9 +74,6 @@ def main():
     if 'yahoo' in args.sites:
         scraper = YahooAuctionsScraper()
         try:
-            print(f"\nSearching Yahoo Auctions for: {', '.join(keywords)}", file=sys.stderr)
-            print(f"Price range: {format_price(min_price)} - {format_price(max_price)}", file=sys.stderr)
-            print("\nFetching results...\n", file=sys.stderr)
             results = scraper.search(**search_options)
             if results['items']:
                 print(f"Yahoo Auctions: Found {len(results['items'])} items", file=sys.stderr)
@@ -74,7 +82,6 @@ def main():
                 # Convert items to database format
                 db_items = []
                 for item in results['items']:
-                    print(f"Processing Yahoo item: {item['title']} - {item.get('source', 'yahoo')}", file=sys.stderr)
                     db_item = {
                         'title': item['title'],
                         'price_value': item['price'],
@@ -90,14 +97,14 @@ def main():
                         'shipping_info': '{}'
                     }
                     if not db.item_exists(db_item['title'], db_item['price_value']):
-                        print(f"Adding Yahoo item to database: {db_item['title']}", file=sys.stderr)
                         db_items.append(db_item)
-                    else:
-                        print(f"Yahoo item already exists: {db_item['title']}", file=sys.stderr)
                 
-                print(f"Attempting to insert {len(db_items)} Yahoo items into database", file=sys.stderr)
-                inserted_count = db.insert_items(db_items, search_query=search_query)
-                print(f"Yahoo Auctions: Inserted {inserted_count} new items into database", file=sys.stderr)
+                if db_items:
+                    inserted_count = db.insert_items(db_items, search_query=search_query)
+                    print(f"Yahoo Auctions: Inserted {inserted_count} new items into database", file=sys.stderr)
+                    # Verify items were inserted
+                    stats = db.get_database_stats()
+                    print(f"Database after Yahoo insert: {stats}", file=sys.stderr)
                 site_results['yahoo'] = results['items']
                 results_all.extend(results['items'])
             else:
@@ -113,9 +120,6 @@ def main():
         from scrapers.rakuten import RakutenScraper
         scraper = RakutenScraper()
         try:
-            print(f"\nSearching Rakuten for: {', '.join(keywords)}", file=sys.stderr)
-            print(f"Price range: {format_price(min_price)} - {format_price(max_price)}", file=sys.stderr)
-            print("\nFetching results...\n", file=sys.stderr)
             results = scraper.search(**search_options)
             if results['items']:
                 print(f"Rakuten: Found {len(results['items'])} items", file=sys.stderr)
@@ -138,8 +142,12 @@ def main():
                     }
                     if not db.item_exists(db_item['title'], db_item['price_value']):
                         db_items.append(db_item)
-                inserted_count = db.insert_items(db_items, search_query=search_query)
-                print(f"Rakuten: Inserted {inserted_count} new items into database", file=sys.stderr)
+                if db_items:
+                    inserted_count = db.insert_items(db_items, search_query=search_query)
+                    print(f"Rakuten: Inserted {inserted_count} new items into database", file=sys.stderr)
+                    # Verify items were inserted
+                    stats = db.get_database_stats()
+                    print(f"Database after Rakuten insert: {stats}", file=sys.stderr)
                 site_results['rakuten'] = results['items']
                 results_all.extend(results['items'])
             else:
@@ -149,12 +157,6 @@ def main():
         finally:
             scraper.cleanup()
 
-    # Print database statistics filtered by current search query
-    stats = db.get_database_stats(query=search_query)
-    print("\nDatabase Statistics:", file=sys.stderr)
-    print(f"Total items: {stats['total_items']}", file=sys.stderr)
-    print(f"Yahoo Auctions items: {stats['yahoo_items']}", file=sys.stderr)
-    print(f"Rakuten items: {stats['rakuten_items']}", file=sys.stderr)
-
+C
 if __name__ == "__main__":
     main() 

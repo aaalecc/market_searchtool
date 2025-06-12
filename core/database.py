@@ -251,7 +251,7 @@ class DatabaseManager:
     def insert_items(self, items: List[Dict[str, Any]], search_query: str = None) -> int:
         """
         Insert multiple items into the database using batch operations.
-        All items will be inserted as new entries, even if they have the same URL.
+        Checks for duplicates based on URL only.
         
         Args:
             items: List of item dictionaries
@@ -266,10 +266,50 @@ class DatabaseManager:
             
         conn = self._get_connection()
         try:
-            # Prepare batch insert
+            # Track items by site
+            site_counts = {}
+            duplicates_by_site = {}
+            
+            # First pass: count items by site and check for duplicates
+            for item in items:
+                site = item['site']
+                site_counts[site] = site_counts.get(site, 0) + 1
+                
+                # Check for duplicates based on URL
+                cursor = conn.execute(
+                    "SELECT 1 FROM search_results WHERE url = ? LIMIT 1",
+                    (item['url'],)
+                )
+                if cursor.fetchone():
+                    duplicates_by_site[site] = duplicates_by_site.get(site, 0) + 1
+                    continue
+            
+            # Print initial statistics
+            print("\nSearch Results:")
+            total_items = sum(site_counts.values())
+            print(f"Total items found: {total_items}")
+            for site, count in site_counts.items():
+                print(f"{site.capitalize()}: {count} items")
+            
+            # Print duplicate statistics
+            total_duplicates = sum(duplicates_by_site.values())
+            if total_duplicates > 0:
+                print("\nDuplicate Items Removed:")
+                print(f"Total duplicates: {total_duplicates}")
+                for site, count in duplicates_by_site.items():
+                    print(f"{site.capitalize()}: {count} duplicates")
+            
+            # Prepare batch insert for non-duplicate items
             values = []
             for item in items:
-                logger.debug(f"Preparing item for insert: {item['title']} - {item['site']}")
+                # Skip if it's a duplicate
+                cursor = conn.execute(
+                    "SELECT 1 FROM search_results WHERE url = ? LIMIT 1",
+                    (item['url'],)
+                )
+                if cursor.fetchone():
+                    continue
+                    
                 values.append((
                     item['title'],
                     item['price_value'],
@@ -286,20 +326,31 @@ class DatabaseManager:
                     search_query
                 ))
             
-            # Execute batch insert
-            logger.debug(f"Executing batch insert for {len(values)} items")
-            conn.executemany("""
-                INSERT INTO search_results (
-                    title, price_value, currency, price_raw, price_formatted,
-                    url, site, image_url, seller, location, condition,
-                    shipping_info, search_query
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, values)
-            
-            inserted_count = len(items)
-            logger.debug(f"Successfully inserted {inserted_count} items")
-            conn.commit()
-            return inserted_count
+            if values:
+                # Execute batch insert
+                conn.executemany("""
+                    INSERT INTO search_results (
+                        title, price_value, currency, price_raw, price_formatted,
+                        url, site, image_url, seller, location, condition,
+                        shipping_info, search_query
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, values)
+                
+                inserted_count = len(values)
+                
+                # Print final statistics
+                print("\nDatabase Statistics:")
+                stats = self.get_database_stats(query=search_query)
+                print(f"Total items in database: {stats['total_items']}")
+                print(f"Yahoo items: {stats['yahoo_items']}")
+                print(f"Rakuten items: {stats['rakuten_items']}")
+                
+                conn.commit()
+                return inserted_count
+            else:
+                print("\nNo new items to insert (all were duplicates)")
+                return 0
+                
         except Exception as e:
             logger.error(f"Failed to batch insert items: {e}")
             import traceback
@@ -390,11 +441,17 @@ class DatabaseManager:
             # Log the raw site counts for debugging
             logger.debug(f"Raw site counts: {site_counts}")
             
-            return {
+            # Ensure we have entries for both sites
+            result = {
                 'total_items': total_items,
                 'yahoo_items': site_counts.get('yahoo', 0),
                 'rakuten_items': site_counts.get('rakuten', 0)
             }
+            
+            # Log the final result
+            logger.debug(f"Database stats result: {result}")
+            
+            return result
         finally:
             self._release_connection(conn)
     
@@ -480,12 +537,12 @@ class DatabaseManager:
         """
         conn = self._get_connection()
         try:
-                conn.execute(
-                    "UPDATE saved_searches SET notifications_enabled = ? WHERE id = ?",
-                    (enabled, saved_search_id)
-                )
-                conn.commit()
-                return True
+            conn.execute(
+                "UPDATE saved_searches SET notifications_enabled = ? WHERE id = ?",
+                (enabled, saved_search_id)
+            )
+            conn.commit()
+            return True
         except Exception as e:
             logger.error(f"Failed to update saved search notifications: {e}")
             conn.rollback()
@@ -493,47 +550,59 @@ class DatabaseManager:
         finally:
             self._release_connection(conn)
 
-    def add_saved_search_items(self, saved_search_id: int, items: list) -> int:
+    def add_saved_search_items(self, saved_search_id: int, items: List[Dict[str, Any]]) -> int:
         """
-        Add items to a saved search using batch operations.
+        Add items to a saved search.
+        All items will be added without duplicate checking.
         
         Args:
             saved_search_id: ID of the saved search
-            items: List of item dictionaries
+            items: List of item dictionaries to add
             
         Returns:
             Number of items added
         """
-        if not items:
-            return 0
-            
         conn = self._get_connection()
         try:
             # Prepare batch insert
             values = []
             for item in items:
                 values.append((
-                            saved_search_id,
-                            item['title'],
+                    saved_search_id,
+                    item['title'],
                     item['price_value'],
-                            item['url'],
-                            item['site'],
-                            item.get('image_url')
+                    item.get('currency', 'JPY'),
+                    item['price_raw'],
+                    item['price_formatted'],
+                    item['url'],
+                    item['site'],
+                    item.get('image_url'),
+                    item.get('seller'),
+                    item.get('location'),
+                    item.get('condition'),
+                    item.get('shipping_info', '{}')
                 ))
             
-            # Execute batch insert
-            conn.executemany("""
-                INSERT OR IGNORE INTO saved_search_items 
-                (saved_search_id, title, price_value, url, site, image_url)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, values)
-            
-            added_count = len(items)
-            logger.debug(f"Batch added {added_count} items to saved search {saved_search_id}")
-            conn.commit()
-            return added_count
+            if values:
+                # Execute batch insert
+                conn.executemany("""
+                    INSERT INTO saved_search_items (
+                        saved_search_id, title, price_value, currency, price_raw,
+                        price_formatted, url, site, image_url, seller, location,
+                        condition, shipping_info
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, values)
+                
+                added_count = len(values)
+                logger.info(f"Added {added_count} items to saved search {saved_search_id}")
+                conn.commit()
+                return added_count
+            else:
+                logger.info("No items to add to saved search")
+                return 0
+                
         except Exception as e:
-            logger.error(f"Failed to batch add items to saved search: {e}")
+            logger.error(f"Failed to add items to saved search: {e}")
             conn.rollback()
             return 0
         finally:
@@ -595,9 +664,9 @@ class DatabaseManager:
         conn = self._get_connection()
         try:
             # Delete will cascade to saved_search_items due to foreign key
-                conn.execute("DELETE FROM saved_searches WHERE id = ?", (saved_search_id,))
-                conn.commit()
-                return True
+            conn.execute("DELETE FROM saved_searches WHERE id = ?", (saved_search_id,))
+            conn.commit()
+            return True
         except Exception as e:
             logger.error(f"Failed to delete saved search: {e}")
             conn.rollback()
@@ -625,19 +694,19 @@ class DatabaseManager:
             values = []
             for item in items:
                 values.append((
-                        saved_search_id,
-                        item['title'],
+                    saved_search_id,
+                    item['title'],
                     item['price_value'],
-                        item.get('currency', 'JPY'),
+                    item.get('currency', 'JPY'),
                     item['price_formatted'],
-                        item['url'],
-                        item['site'],
-                        item.get('image_url'),
-                        item.get('seller'),
-                        item.get('location'),
-                        item.get('condition'),
-                        item.get('shipping_info', '{}')
-                    ))
+                    item['url'],
+                    item['site'],
+                    item.get('image_url'),
+                    item.get('seller'),
+                    item.get('location'),
+                    item.get('condition'),
+                    item.get('shipping_info', '{}')
+                ))
             
             # Execute batch insert
             conn.executemany("""
@@ -651,6 +720,7 @@ class DatabaseManager:
             logger.debug(f"Batch added {added_count} new items for saved search {saved_search_id}")
             conn.commit()
             return added_count
+            
         except Exception as e:
             logger.error(f"Failed to batch add new items: {e}")
             conn.rollback()
@@ -769,6 +839,38 @@ class DatabaseManager:
     def close(self) -> None:
         """Close all database connections."""
         self.pool.close_all()
+
+    def clear_all_tables(self) -> None:
+        """Clear all tables in the database."""
+        conn = self._get_connection()
+        try:
+            # Get list of all tables
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [row[0] for row in cursor.fetchall()]
+            
+            # Disable foreign keys temporarily
+            conn.execute("PRAGMA foreign_keys = OFF")
+            
+            # Clear each table
+            for table in tables:
+                logger.info(f"Clearing table: {table}")
+                conn.execute(f"DELETE FROM {table}")
+            
+            # Reset autoincrement counters
+            for table in tables:
+                conn.execute(f"DELETE FROM sqlite_sequence WHERE name='{table}'")
+            
+            # Re-enable foreign keys
+            conn.execute("PRAGMA foreign_keys = ON")
+            
+            conn.commit()
+            logger.info("All database tables cleared successfully")
+        except Exception as e:
+            logger.error(f"Failed to clear database tables: {e}")
+            conn.rollback()
+        finally:
+            self._release_connection(conn)
 
 # Create a global instance for easy access
 db = DatabaseManager()
@@ -990,4 +1092,8 @@ def add_new_items(saved_search_id: int, items: ItemList) -> int:
 
 def close_database() -> None:
     """Close all database connections."""
-    db.close() 
+    db.close()
+
+def clear_all_tables() -> None:
+    """Clear all tables in the database."""
+    db.clear_all_tables() 

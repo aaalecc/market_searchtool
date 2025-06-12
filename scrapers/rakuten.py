@@ -105,6 +105,10 @@ class RakutenScraper:
             print(f"[DEBUG] Total pages detected: {total_pages}")
             logger.info(f"Rakuten: Total pages detected: {total_pages}")
 
+            # Track empty pages
+            empty_pages = 0
+            max_empty_pages = 2  # Stop after 2 consecutive empty pages
+
             for page in range(1, total_pages + 1):
                 params['p'] = page
                 self._respect_rate_limits()
@@ -113,8 +117,22 @@ class RakutenScraper:
                 soup = BeautifulSoup(response.text, 'html.parser')
                 print(f"[DEBUG] Fetching page {page}")
                 logger.info(f"Rakuten: Fetching page {page}/{total_pages}")
+                
+                # Get all items on the page
+                page_items = soup.select('div.searchresultitem, div.searchresultitem--grid, div.searchresultitem--list, div.dui-card')
                 page_item_count = 0
-                for item in soup.select('div.searchresultitem, div.searchresultitem--grid, div.searchresultitem--list, div.dui-card'):
+                
+                if not page_items:
+                    empty_pages += 1
+                    logger.info(f"Rakuten: Page {page} is empty")
+                    if empty_pages >= max_empty_pages:
+                        logger.info(f"Rakuten: Stopping after {max_empty_pages} empty pages")
+                        break
+                    continue
+                else:
+                    empty_pages = 0  # Reset empty pages counter if we found items
+                
+                for item in page_items:
                     try:
                         # Title extraction (from <a> inside h2.title-link-wrapper--25--s)
                         title_elem = item.select_one('h2.title-link-wrapper--25--s a')
@@ -174,7 +192,15 @@ class RakutenScraper:
                     except Exception as e:
                         logger.error(f"Error parsing item: {e}")
                         continue
+                
                 logger.info(f"Rakuten: Page {page} - {page_item_count} items scraped (total so far: {len(items)})")
+                
+                # If we got fewer items than expected on a page, we might be at the end
+                if page_item_count < 45:  # Rakuten typically shows 45 items per page
+                    logger.info(f"Rakuten: Page {page} has fewer items than expected ({page_item_count}), might be the last page")
+            
+            print(f"[DEBUG] Total items found: {len(items)}")
+            logger.info(f"Rakuten: Search complete - found {len(items)} items")
             return {
                 'items': items,
                 'search_url': search_url
