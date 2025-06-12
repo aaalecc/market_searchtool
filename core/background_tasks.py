@@ -120,8 +120,9 @@ class BackgroundTaskManager:
                 # Remove current_db if it exists
                 if os.path.exists(current_db):
                     os.remove(current_db)
-                # Parse options
-                options = json.loads(search['options_json'])
+                
+                # Get options directly from the search dictionary
+                options = search.get('options', {})
                 keywords = options.get('keywords', [])
                 min_price = options.get('min_price', '')
                 max_price = options.get('max_price', '')
