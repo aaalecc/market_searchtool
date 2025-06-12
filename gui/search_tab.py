@@ -181,9 +181,19 @@ class SearchTab(ctk.CTkFrame):
         if not query:
             return
         
-        # Get price range
-        min_price = self.min_price_entry.get().strip()
-        max_price = self.max_price_entry.get().strip()
+        # Get price range and convert to integers
+        min_price = None
+        max_price = None
+        try:
+            min_price_str = self.min_price_entry.get().strip()
+            if min_price_str:
+                min_price = int(min_price_str)
+            max_price_str = self.max_price_entry.get().strip()
+            if max_price_str:
+                max_price = int(max_price_str)
+        except ValueError:
+            self.show_error("価格は整数で入力してください。")
+            return
         
         # Get selected sites
         selected_sites = [
@@ -209,10 +219,10 @@ class SearchTab(ctk.CTkFrame):
                 cmd.extend(["--sites"] + selected_sites)
                 
                 # Add price range if specified
-                if min_price:
-                    cmd.extend(["--min-price", min_price])
-                if max_price:
-                    cmd.extend(["--max-price", max_price])
+                if min_price is not None:
+                    cmd.extend(["--min-price", str(min_price)])
+                if max_price is not None:
+                    cmd.extend(["--max-price", str(max_price)])
                 
                 # Add keywords
                 cmd.extend(["--keywords"] + query.split())
@@ -236,8 +246,8 @@ class SearchTab(ctk.CTkFrame):
                     print("Command errors:", process.stderr)
                 
                 if process.returncode == 0:
-                    # Get database stats
-                    stats = get_database_stats()
+                    # Get database stats filtered by current query
+                    stats = get_database_stats(query=query)
                     print("Database stats:", stats)  # Debug print
                     
                     # Update UI with results
@@ -248,15 +258,10 @@ class SearchTab(ctk.CTkFrame):
             
             except Exception as e:
                 error_msg = f"Error during search: {str(e)}"
-                print("Exception:", error_msg)  # Debug print
                 self.after(0, lambda: self.show_error(error_msg))
-            
             finally:
                 # Re-enable search button
-                self.after(0, lambda: self.search_button.configure(
-                    state="normal",
-                    text="🔍  検索実行"
-                ))
+                self.after(0, lambda: self.search_button.configure(state="normal", text="🔍  検索実行"))
         
         # Start search in a separate thread
         threading.Thread(target=search_thread, daemon=True).start()
@@ -305,8 +310,17 @@ class SearchTab(ctk.CTkFrame):
         # Calculate offset for current page
         offset = (self.current_page - 1) * self.items_per_page
         
-        # Get search results from database
-        results = get_search_results(limit=self.items_per_page, offset=offset, sort_by="price_value", sort_order="asc")
+        # Get current search query
+        current_query = self.search_entry.get().strip()
+        
+        # Get search results from database, filtered by current query
+        results = get_search_results(
+            query=current_query,
+            limit=self.items_per_page,
+            offset=offset,
+            sort_by="price_value",
+            sort_order="asc"
+        )
         
         if not results:
             no_results = ctk.CTkLabel(
@@ -391,8 +405,11 @@ class SearchTab(ctk.CTkFrame):
             
         self.current_page = new_page
         
-        # Get updated stats
-        stats = get_database_stats()
+        # Get current search query
+        current_query = self.search_entry.get().strip()
+        
+        # Get updated stats filtered by current query
+        stats = get_database_stats(query=current_query)
         
         # Redisplay results with new page
         self.display_search_results(stats)

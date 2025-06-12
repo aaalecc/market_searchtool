@@ -7,9 +7,12 @@ import sqlite3
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, List, Any, Optional, Union, Tuple
 from contextlib import contextmanager
 import json
+from queue import Queue
+from threading import Lock, local
+import threading
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -17,75 +20,75 @@ logger = logging.getLogger(__name__)
 # SQL Query Constants
 CREATE_TABLES = {
     'search_results': '''
-        CREATE TABLE IF NOT EXISTS search_results (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            price_value REAL,
-            currency TEXT DEFAULT 'JPY',
-            price_raw TEXT,
-            price_formatted TEXT,
-            url TEXT NOT NULL,
-            site TEXT NOT NULL,
-            image_url TEXT,
-            seller TEXT,
-            location TEXT,
-            condition TEXT,
-            shipping_info TEXT,
-            search_query TEXT,
-            found_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_available BOOLEAN DEFAULT 1
-        )
+                CREATE TABLE IF NOT EXISTS search_results (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    price_value REAL,
+                    currency TEXT DEFAULT 'JPY',
+                    price_raw TEXT,
+                    price_formatted TEXT,
+                    url TEXT NOT NULL,
+                    site TEXT NOT NULL,
+                    image_url TEXT,
+                    seller TEXT,
+                    location TEXT,
+                    condition TEXT,
+                    shipping_info TEXT,
+                    search_query TEXT,
+                    found_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_available BOOLEAN DEFAULT 1
+                )
     ''',
     'saved_searches': '''
-        CREATE TABLE IF NOT EXISTS saved_searches (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            options_json TEXT NOT NULL,
-            name TEXT,
-            notifications_enabled BOOLEAN DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
+                CREATE TABLE IF NOT EXISTS saved_searches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    options_json TEXT NOT NULL,
+                    name TEXT,
+                    notifications_enabled BOOLEAN DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
     ''',
     'saved_search_items': '''
-        CREATE TABLE IF NOT EXISTS saved_search_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            saved_search_id INTEGER NOT NULL,
-            title TEXT NOT NULL,
-            price_value REAL,
-            url TEXT NOT NULL,
-            site TEXT NOT NULL,
-            image_url TEXT,
-            found_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(saved_search_id, title, price_value),
-            FOREIGN KEY(saved_search_id) REFERENCES saved_searches(id) ON DELETE CASCADE
-        )
+                CREATE TABLE IF NOT EXISTS saved_search_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    saved_search_id INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    price_value REAL,
+                    url TEXT NOT NULL,
+                    site TEXT NOT NULL,
+                    image_url TEXT,
+                    found_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(saved_search_id, title, price_value),
+                    FOREIGN KEY(saved_search_id) REFERENCES saved_searches(id) ON DELETE CASCADE
+                )
     ''',
     'new_items': '''
-        CREATE TABLE IF NOT EXISTS new_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            saved_search_id INTEGER NOT NULL,
-            title TEXT NOT NULL,
-            price_value REAL,
-            currency TEXT DEFAULT 'JPY',
-            price_formatted TEXT,
-            url TEXT NOT NULL,
-            site TEXT NOT NULL,
-            image_url TEXT,
-            seller TEXT,
-            location TEXT,
-            condition TEXT,
-            shipping_info TEXT,
-            found_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_viewed BOOLEAN DEFAULT 0,
-            FOREIGN KEY(saved_search_id) REFERENCES saved_searches(id) ON DELETE CASCADE
-        )
+                CREATE TABLE IF NOT EXISTS new_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    saved_search_id INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    price_value REAL,
+                    currency TEXT DEFAULT 'JPY',
+                    price_formatted TEXT,
+                    url TEXT NOT NULL,
+                    site TEXT NOT NULL,
+                    image_url TEXT,
+                    seller TEXT,
+                    location TEXT,
+                    condition TEXT,
+                    shipping_info TEXT,
+                    found_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_viewed BOOLEAN DEFAULT 0,
+                    FOREIGN KEY(saved_search_id) REFERENCES saved_searches(id) ON DELETE CASCADE
+                )
     ''',
     'settings': '''
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
     '''
 }
 
@@ -97,6 +100,56 @@ CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_new_items_saved_search ON new_items(saved_search_id)",
     "CREATE INDEX IF NOT EXISTS idx_new_items_found_at ON new_items(found_at)"
 ]
+
+class ConnectionPool:
+    """Thread-safe connection pool for SQLite database."""
+    
+    def __init__(self, db_path: str, max_connections: int = 5):
+        self.db_path = db_path
+        self.max_connections = max_connections
+        self.connections = Queue(maxsize=max_connections)
+        self.thread_local = threading.local()
+        
+        # Initialize the pool with connections
+        for _ in range(max_connections):
+            conn = sqlite3.connect(db_path, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            self.connections.put(conn)
+    
+    def get_connection(self) -> sqlite3.Connection:
+        """Get a connection from the pool, creating a new one if needed."""
+        # Check if this thread already has a connection
+        if not hasattr(self.thread_local, 'connection'):
+            try:
+                # Try to get a connection from the pool
+                conn = self.connections.get_nowait()
+            except Queue.Empty:
+                # If pool is empty, create a new connection
+                conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+            # Store the connection in thread-local storage
+            self.thread_local.connection = conn
+        return self.thread_local.connection
+    
+    def release_connection(self, conn: sqlite3.Connection):
+        """Release a connection back to the pool."""
+        # Only return the connection to the pool if it's not the thread-local one
+        if hasattr(self.thread_local, 'connection') and self.thread_local.connection == conn:
+            return
+        try:
+            self.connections.put_nowait(conn)
+        except Queue.Full:
+            conn.close()
+    
+    def close_all(self):
+        """Close all connections in the pool."""
+        while not self.connections.empty():
+            conn = self.connections.get()
+            conn.close()
+        # Also close thread-local connections
+        if hasattr(self.thread_local, 'connection'):
+            self.thread_local.connection.close()
+            del self.thread_local.connection
 
 class QueryBuilder:
     """Helper class for building SQL queries with proper parameter handling."""
@@ -146,44 +199,25 @@ class QueryBuilder:
         return query, self.params
 
 class DatabaseManager:
-    """Manages SQLite database operations for scraped items."""
+    """Database manager for Market Search Tool."""
     
-    def __init__(self, db_path: str = "data/market_search.db"):
-        """
-        Initialize database manager.
-        
-        Args:
-            db_path: Path to SQLite database file
-        """
+    def __init__(self, db_path: str = 'data/market_search.db'):
+        """Initialize database manager."""
         self.db_path = db_path
-        self.ensure_database_exists()
-        self.create_tables()
+        self.pool = ConnectionPool(db_path)
+        self._create_tables()
     
-    def ensure_database_exists(self):
-        """Create database directory if it doesn't exist."""
-        db_dir = Path(self.db_path).parent
-        db_dir.mkdir(parents=True, exist_ok=True)
+    def _get_connection(self) -> sqlite3.Connection:
+        """Get a database connection from the pool."""
+        return self.pool.get_connection()
     
-    @contextmanager
-    def get_connection(self):
-        """Context manager for database connections."""
-        conn = None
-        try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row  # Enable dict-like access
-            yield conn
-        except Exception as e:
-            if conn:
-                conn.rollback()
-            logger.error(f"Database error: {e}")
-            raise
-        finally:
-            if conn:
-                conn.close()
+    def _release_connection(self, conn: sqlite3.Connection):
+        """Release a database connection back to the pool."""
+        self.pool.release_connection(conn)
     
-    def create_tables(self):
+    def _create_tables(self):
         """Create the search results table and saved search tables."""
-        with self.get_connection() as conn:
+        with self._get_connection() as conn:
             # Create all tables
             for table_name, create_sql in CREATE_TABLES.items():
                 conn.execute(create_sql)
@@ -203,6 +237,17 @@ class DatabaseManager:
             
             conn.commit()
     
+    def clear_old_search_results(self) -> None:
+        """Clear old search results from the database."""
+        with self._get_connection() as conn:
+            try:
+                conn.execute("DELETE FROM search_results")
+                conn.commit()
+                logger.debug("Cleared old search results")
+            except Exception as e:
+                logger.error(f"Failed to clear old search results: {e}")
+                conn.rollback()
+    
     def insert_items(self, items: List[Dict[str, Any]], search_query: str = None) -> int:
         """
         Insert multiple items into the database using batch operations.
@@ -216,47 +261,53 @@ class DatabaseManager:
             Number of items inserted
         """
         if not items:
+            logger.debug("No items to insert")
             return 0
             
-        with self.get_connection() as conn:
-            try:
-                # Prepare batch insert
-                values = []
-                for item in items:
-                    values.append((
-                        item['title'],
-                        item['price_value'],
-                        item.get('currency', 'JPY'),
-                        item['price_raw'],
-                        item['price_formatted'],
-                        item['url'],
-                        item['site'],
-                        item.get('image_url'),
-                        item.get('seller'),
-                        item.get('location'),
-                        item.get('condition'),
-                        item.get('shipping_info', '{}'),
-                        search_query
-                    ))
-                
-                # Execute batch insert
-                conn.executemany("""
-                    INSERT INTO search_results (
-                        title, price_value, currency, price_raw, price_formatted,
-                        url, site, image_url, seller, location, condition,
-                        shipping_info, search_query
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, values)
-                
-                inserted_count = len(items)
-                logger.debug(f"Batch inserted {inserted_count} items")
-                conn.commit()
-                return inserted_count
-                    
-            except Exception as e:
-                logger.error(f"Failed to batch insert items: {e}")
-                conn.rollback()
-                return 0
+        conn = self._get_connection()
+        try:
+            # Prepare batch insert
+            values = []
+            for item in items:
+                logger.debug(f"Preparing item for insert: {item['title']} - {item['site']}")
+                values.append((
+                    item['title'],
+                    item['price_value'],
+                    item.get('currency', 'JPY'),
+                    item['price_raw'],
+                    item['price_formatted'],
+                    item['url'],
+                    item['site'],
+                    item.get('image_url'),
+                    item.get('seller'),
+                    item.get('location'),
+                    item.get('condition'),
+                    item.get('shipping_info', '{}'),
+                    search_query
+                ))
+            
+            # Execute batch insert
+            logger.debug(f"Executing batch insert for {len(values)} items")
+            conn.executemany("""
+                INSERT INTO search_results (
+                    title, price_value, currency, price_raw, price_formatted,
+                    url, site, image_url, seller, location, condition,
+                    shipping_info, search_query
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, values)
+            
+            inserted_count = len(items)
+            logger.debug(f"Successfully inserted {inserted_count} items")
+            conn.commit()
+            return inserted_count
+        except Exception as e:
+            logger.error(f"Failed to batch insert items: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            conn.rollback()
+            return 0
+        finally:
+            self._release_connection(conn)
     
     def get_search_results(self, query: str = None, site: str = None, 
                           limit: int = 50, offset: int = 0, sort_by: str = None, sort_order: str = "asc") -> List[Dict]:
@@ -274,7 +325,7 @@ class DatabaseManager:
         Returns:
             List of search result dictionaries
         """
-        with self.get_connection() as conn:
+        with self._get_connection() as conn:
             # Build query using QueryBuilder
             query_builder = QueryBuilder("SELECT * FROM search_results")
             
@@ -296,15 +347,56 @@ class DatabaseManager:
             rows = conn.execute(sql, params).fetchall()
             return [dict(row) for row in rows]
     
-    def get_database_stats(self) -> Dict[str, int]:
-        """Get database statistics."""
-        with self.get_connection() as conn:
-            stats = {
-                'total_items': conn.execute("SELECT COUNT(*) FROM search_results").fetchone()[0],
-                'yahoo_items': conn.execute("SELECT COUNT(*) FROM search_results WHERE site = 'Yahoo Auctions'").fetchone()[0],
-                'rakuten_items': conn.execute("SELECT COUNT(*) FROM search_results WHERE site = 'Rakuten'").fetchone()[0]
+    def get_database_stats(self, query: Optional[str] = None) -> Dict[str, int]:
+        """Get database statistics.
+        
+        Args:
+            query: Optional search query to filter stats by
+            
+        Returns:
+            Dictionary containing total items and items per site
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            
+            # Base query for total items
+            total_query = "SELECT COUNT(*) FROM search_results"
+            total_params = []
+            
+            # Base query for items per site
+            site_query = "SELECT site, COUNT(*) as count FROM search_results"
+            site_params = []
+            
+            # Add query filter if provided
+            if query:
+                where_clause = " WHERE search_query = ?"
+                total_query += where_clause
+                site_query += where_clause
+                total_params.append(query)
+                site_params.append(query)
+            
+            # Add GROUP BY clause for site counts
+            site_query += " GROUP BY site"
+            
+            # Get total items
+            cursor.execute(total_query, total_params)
+            total_items = cursor.fetchone()[0]
+            
+            # Get items per site
+            cursor.execute(site_query, site_params)
+            site_counts = dict(cursor.fetchall())
+            
+            # Log the raw site counts for debugging
+            logger.debug(f"Raw site counts: {site_counts}")
+            
+            return {
+                'total_items': total_items,
+                'yahoo_items': site_counts.get('yahoo', 0),
+                'rakuten_items': site_counts.get('rakuten', 0)
             }
-            return stats
+        finally:
+            self._release_connection(conn)
     
     def get_setting(self, key: str, default: Any = None) -> Any:
         """
@@ -317,7 +409,7 @@ class DatabaseManager:
         Returns:
             Setting value or default
         """
-        with self.get_connection() as conn:
+        with self._get_connection() as conn:
             result = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
             if result:
                 return result['value']
@@ -331,7 +423,7 @@ class DatabaseManager:
             key: Setting key
             value: Setting value
         """
-        with self.get_connection() as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO settings (key, value, updated_at)
                 VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -341,7 +433,7 @@ class DatabaseManager:
     def item_exists(self, title: str, price_value: float) -> bool:
         normalized_title = title.strip().lower()
         rounded_price = round(price_value, 2) if price_value is not None else None
-        with self.get_connection() as conn:
+        with self._get_connection() as conn:
             result = conn.execute(
                 "SELECT 1 FROM search_results WHERE LOWER(TRIM(title)) = ? AND ROUND(price_value, 2) = ? LIMIT 1",
                 (normalized_title, rounded_price)
@@ -359,20 +451,22 @@ class DatabaseManager:
         Returns:
             ID of the created saved search
         """
-        with self.get_connection() as conn:
-            try:
-                cursor = conn.execute(
-                    "INSERT INTO saved_searches (options_json, name) VALUES (?, ?)",
-                    (json.dumps(options), name)
-                )
-                saved_search_id = cursor.lastrowid
-                conn.commit()
-                return saved_search_id
-            except Exception as e:
-                logger.error(f"Failed to create saved search: {e}")
-                conn.rollback()
-                return -1
-    
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute(
+                "INSERT INTO saved_searches (options_json, name) VALUES (?, ?)",
+                (json.dumps(options), name)
+            )
+            saved_search_id = cursor.lastrowid
+            conn.commit()
+            return saved_search_id
+        except Exception as e:
+            logger.error(f"Failed to create saved search: {e}")
+            conn.rollback()
+            return -1
+        finally:
+            self._release_connection(conn)
+
     def update_saved_search_notifications(self, saved_search_id: int, enabled: bool) -> bool:
         """
         Update notification settings for a saved search.
@@ -384,19 +478,21 @@ class DatabaseManager:
         Returns:
             True if update was successful
         """
-        with self.get_connection() as conn:
-            try:
+        conn = self._get_connection()
+        try:
                 conn.execute(
                     "UPDATE saved_searches SET notifications_enabled = ? WHERE id = ?",
                     (enabled, saved_search_id)
                 )
                 conn.commit()
                 return True
-            except Exception as e:
-                logger.error(f"Failed to update saved search notifications: {e}")
-                conn.rollback()
-                return False
-    
+        except Exception as e:
+            logger.error(f"Failed to update saved search notifications: {e}")
+            conn.rollback()
+            return False
+        finally:
+            self._release_connection(conn)
+
     def add_saved_search_items(self, saved_search_id: int, items: list) -> int:
         """
         Add items to a saved search using batch operations.
@@ -411,37 +507,38 @@ class DatabaseManager:
         if not items:
             return 0
             
-        with self.get_connection() as conn:
-            try:
-                # Prepare batch insert
-                values = []
-                for item in items:
-                    values.append((
-                        saved_search_id,
-                        item['title'],
-                        item['price_value'],
-                        item['url'],
-                        item['site'],
-                        item.get('image_url')
-                    ))
-                
-                # Execute batch insert
-                conn.executemany("""
-                    INSERT OR IGNORE INTO saved_search_items 
-                    (saved_search_id, title, price_value, url, site, image_url)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, values)
-                
-                added_count = len(items)
-                logger.debug(f"Batch added {added_count} items to saved search {saved_search_id}")
-                conn.commit()
-                return added_count
-                    
-            except Exception as e:
-                logger.error(f"Failed to batch add items to saved search: {e}")
-                conn.rollback()
-                return 0
-    
+        conn = self._get_connection()
+        try:
+            # Prepare batch insert
+            values = []
+            for item in items:
+                values.append((
+                            saved_search_id,
+                            item['title'],
+                    item['price_value'],
+                            item['url'],
+                            item['site'],
+                            item.get('image_url')
+                ))
+            
+            # Execute batch insert
+            conn.executemany("""
+                INSERT OR IGNORE INTO saved_search_items 
+                (saved_search_id, title, price_value, url, site, image_url)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, values)
+            
+            added_count = len(items)
+            logger.debug(f"Batch added {added_count} items to saved search {saved_search_id}")
+            conn.commit()
+            return added_count
+        except Exception as e:
+            logger.error(f"Failed to batch add items to saved search: {e}")
+            conn.rollback()
+            return 0
+        finally:
+            self._release_connection(conn)
+
     def get_saved_searches(self) -> List[Dict]:
         """
         Get all saved searches.
@@ -449,7 +546,7 @@ class DatabaseManager:
         Returns:
             List of saved search dictionaries
         """
-        with self.get_connection() as conn:
+        with self._get_connection() as conn:
             query_builder = QueryBuilder("SELECT * FROM saved_searches")
             query_builder.add_order_by("created_at", "DESC")
             
@@ -476,7 +573,7 @@ class DatabaseManager:
         Returns:
             List of item dictionaries
         """
-        with self.get_connection() as conn:
+        with self._get_connection() as conn:
             query_builder = QueryBuilder("SELECT * FROM saved_search_items")
             query_builder.add_where("saved_search_id = ?", saved_search_id)
             query_builder.add_order_by("found_at", "DESC")
@@ -484,7 +581,7 @@ class DatabaseManager:
             sql, params = query_builder.build()
             rows = conn.execute(sql, params).fetchall()
             return [dict(row) for row in rows]
-    
+
     def delete_saved_search(self, saved_search_id: int) -> bool:
         """
         Delete a saved search and all its items.
@@ -495,16 +592,18 @@ class DatabaseManager:
         Returns:
             True if deletion was successful
         """
-        with self.get_connection() as conn:
-            try:
-                # Delete will cascade to saved_search_items due to foreign key
+        conn = self._get_connection()
+        try:
+            # Delete will cascade to saved_search_items due to foreign key
                 conn.execute("DELETE FROM saved_searches WHERE id = ?", (saved_search_id,))
                 conn.commit()
                 return True
-            except Exception as e:
-                logger.error(f"Failed to delete saved search: {e}")
-                conn.rollback()
-                return False
+        except Exception as e:
+            logger.error(f"Failed to delete saved search: {e}")
+            conn.rollback()
+            return False
+        finally:
+            self._release_connection(conn)
 
     def add_new_items(self, saved_search_id: int, items: List[Dict[str, Any]]) -> int:
         """
@@ -520,17 +619,17 @@ class DatabaseManager:
         if not items:
             return 0
             
-        with self.get_connection() as conn:
-            try:
-                # Prepare batch insert
-                values = []
-                for item in items:
-                    values.append((
+        conn = self._get_connection()
+        try:
+            # Prepare batch insert
+            values = []
+            for item in items:
+                values.append((
                         saved_search_id,
                         item['title'],
-                        item['price_value'],
+                    item['price_value'],
                         item.get('currency', 'JPY'),
-                        item['price_formatted'],
+                    item['price_formatted'],
                         item['url'],
                         item['site'],
                         item.get('image_url'),
@@ -539,25 +638,26 @@ class DatabaseManager:
                         item.get('condition'),
                         item.get('shipping_info', '{}')
                     ))
-                
-                # Execute batch insert
-                conn.executemany("""
-                    INSERT INTO new_items (
-                        saved_search_id, title, price_value, currency, price_formatted,
-                        url, site, image_url, seller, location, condition, shipping_info
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, values)
-                
-                added_count = len(items)
-                logger.debug(f"Batch added {added_count} new items for saved search {saved_search_id}")
-                conn.commit()
-                return added_count
-                    
-            except Exception as e:
-                logger.error(f"Failed to batch add new items: {e}")
-                conn.rollback()
-                return 0
-    
+            
+            # Execute batch insert
+            conn.executemany("""
+                INSERT INTO new_items (
+                    saved_search_id, title, price_value, currency, price_formatted,
+                    url, site, image_url, seller, location, condition, shipping_info
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, values)
+            
+            added_count = len(items)
+            logger.debug(f"Batch added {added_count} new items for saved search {saved_search_id}")
+            conn.commit()
+            return added_count
+        except Exception as e:
+            logger.error(f"Failed to batch add new items: {e}")
+            conn.rollback()
+            return 0
+        finally:
+            self._release_connection(conn)
+
     def get_new_items(self, limit: int = 10, offset: int = 0, site: str = None) -> Dict[str, List[Dict]]:
         """
         Get new items grouped by saved search.
@@ -570,12 +670,13 @@ class DatabaseManager:
         Returns:
             Dictionary mapping saved search names to lists of items
         """
-        with self.get_connection() as conn:
+        conn = self._get_connection()
+        try:
             # First get all saved searches with new items
             query_builder = QueryBuilder("""
                 SELECT DISTINCT n.saved_search_id, COALESCE(s.name, 'Unnamed Search ' || s.id) as search_name
-                FROM new_items n
-                JOIN saved_searches s ON n.saved_search_id = s.id
+                    FROM new_items n
+                    JOIN saved_searches s ON n.saved_search_id = s.id
                 WHERE n.is_viewed = 0
             """)
             
@@ -606,6 +707,8 @@ class DatabaseManager:
                     result[search_name] = items
             
             return result
+        finally:
+            self._release_connection(conn)
     
     def mark_items_as_viewed(self, item_ids: List[int]) -> None:
         """
@@ -617,19 +720,21 @@ class DatabaseManager:
         if not item_ids:
             return
             
-        with self.get_connection() as conn:
-            try:
-                # Use batch update for better performance
-                placeholders = ','.join('?' * len(item_ids))
-                conn.execute(
-                    f"UPDATE new_items SET is_viewed = 1 WHERE id IN ({placeholders})",
-                    item_ids
-                )
-                conn.commit()
-            except Exception as e:
-                logger.error(f"Failed to mark items as viewed: {e}")
-                conn.rollback()
-    
+        conn = self._get_connection()
+        try:
+            # Use batch update for better performance
+            placeholders = ','.join('?' * len(item_ids))
+            conn.execute(
+                f"UPDATE new_items SET is_viewed = 1 WHERE id IN ({placeholders})",
+                item_ids
+            )
+            conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to mark items as viewed: {e}")
+            conn.rollback()
+        finally:
+            self._release_connection(conn)
+
     def get_new_items_count(self, site: str = None) -> Dict[str, int]:
         """
         Get count of new items per saved search.
@@ -640,7 +745,8 @@ class DatabaseManager:
         Returns:
             Dictionary mapping saved search names to item counts
         """
-        with self.get_connection() as conn:
+        conn = self._get_connection()
+        try:
             query_builder = QueryBuilder("""
                 SELECT COALESCE(s.name, 'Unnamed Search ' || s.id) as search_name, COUNT(*) as count 
                 FROM new_items n
@@ -657,6 +763,12 @@ class DatabaseManager:
             rows = conn.execute(sql, params).fetchall()
             
             return {row['search_name']: row['count'] for row in rows}
+        finally:
+            self._release_connection(conn)
+
+    def close(self) -> None:
+        """Close all database connections."""
+        self.pool.close_all()
 
 # Create a global instance for easy access
 db = DatabaseManager()
@@ -704,14 +816,17 @@ def get_search_results(
     """
     return db.get_search_results(query, site, limit, offset, sort_by, sort_order)
 
-def get_database_stats() -> Dict[str, int]:
+def get_database_stats(query: Optional[str] = None) -> Dict[str, int]:
     """
     Get database statistics.
     
+    Args:
+        query: Optional search query to filter stats by
+        
     Returns:
-        Dictionary of database statistics
+        Dictionary containing total items and items per site
     """
-    return db.get_database_stats()
+    return db.get_database_stats(query)
 
 def get_setting(key: str, default: Any = None) -> Any:
     """
@@ -872,3 +987,7 @@ def add_new_items(saved_search_id: int, items: ItemList) -> int:
         Number of items added
     """
     return db.add_new_items(saved_search_id, items) 
+
+def close_database() -> None:
+    """Close all database connections."""
+    db.close() 

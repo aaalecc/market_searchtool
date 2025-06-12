@@ -74,11 +74,11 @@ class RakutenScraper:
                 'p': 1,
                 's': 4  # Always sort by newest
             }
-            if min_price:
-                url = url.rstrip('/') + f'/?min={min_price}'
+            if min_price is not None:
+                url = url.rstrip('/') + f'/?min={int(min_price)}'
                 logger.info(f"Rakuten: Setting min price filter: {min_price}")
-            if max_price:
-                url = url.rstrip('/') + f'&max={max_price}'
+            if max_price is not None:
+                url = url.rstrip('/') + f'&max={int(max_price)}'
                 logger.info(f"Rakuten: Setting max price filter: {max_price}")
             headers = get_request_headers(site_id='rakuten')
             logger.info(f"Rakuten: Search URL with params: {url}")
@@ -133,6 +133,13 @@ class RakutenScraper:
                                 price = self._normalize_price(price_text)
                                 if price > 0:
                                     break
+                                    
+                        # Skip items that don't match price criteria
+                        if min_price is not None and price < min_price:
+                            continue
+                        if max_price is not None and price > max_price:
+                            continue
+                            
                         # URL and ID extraction
                         url_elem = item.select_one('h2.title-link-wrapper--25--s a')
                         url = url_elem['href'] if url_elem and url_elem.has_attr('href') else ''

@@ -28,8 +28,8 @@ def format_price(price: float) -> str:
 def main():
     parser = argparse.ArgumentParser(description="Test script for market scrapers.")
     parser.add_argument('--sites', nargs='+', choices=['yahoo', 'rakuten'], required=True, help='Sites to scrape (yahoo, rakuten)')
-    parser.add_argument('--min-price', type=float, default=0, help='Minimum price in JPY')
-    parser.add_argument('--max-price', type=float, default=1000000, help='Maximum price in JPY')
+    parser.add_argument('--min-price', type=int, default=0, help='Minimum price in JPY')
+    parser.add_argument('--max-price', type=int, default=1000000, help='Maximum price in JPY')
     parser.add_argument('--keywords', nargs='+', default=[''], help='Search keywords')
     parser.add_argument('--db', type=str, default='data/market_search.db', help='Output database file')
     args = parser.parse_args()
@@ -46,6 +46,10 @@ def main():
 
     # Use the specified database file
     db = DatabaseManager(db_path)
+
+    # Clear old search results before starting any scraping
+    print("Clearing old search results...", file=sys.stderr)
+    db.clear_old_search_results()
 
     search_options = {
         'keywords': keywords,
@@ -70,6 +74,7 @@ def main():
                 # Convert items to database format
                 db_items = []
                 for item in results['items']:
+                    print(f"Processing Yahoo item: {item['title']} - {item.get('source', 'yahoo')}", file=sys.stderr)
                     db_item = {
                         'title': item['title'],
                         'price_value': item['price'],
@@ -77,7 +82,7 @@ def main():
                         'price_raw': str(item['price']),
                         'price_formatted': format_price(item['price']),
                         'url': item['url'],
-                        'site': 'Yahoo Auctions',
+                        'site': item.get('source', 'yahoo'),
                         'image_url': item.get('image_url'),
                         'seller': None,
                         'location': None,
@@ -85,7 +90,12 @@ def main():
                         'shipping_info': '{}'
                     }
                     if not db.item_exists(db_item['title'], db_item['price_value']):
+                        print(f"Adding Yahoo item to database: {db_item['title']}", file=sys.stderr)
                         db_items.append(db_item)
+                    else:
+                        print(f"Yahoo item already exists: {db_item['title']}", file=sys.stderr)
+                
+                print(f"Attempting to insert {len(db_items)} Yahoo items into database", file=sys.stderr)
                 inserted_count = db.insert_items(db_items, search_query=search_query)
                 print(f"Yahoo Auctions: Inserted {inserted_count} new items into database", file=sys.stderr)
                 site_results['yahoo'] = results['items']
@@ -94,6 +104,8 @@ def main():
                 print("Yahoo Auctions: No results found.", file=sys.stderr)
         except Exception as e:
             print(f"Error during Yahoo Auctions scraping: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
         finally:
             scraper.cleanup()
 
@@ -117,7 +129,7 @@ def main():
                         'price_raw': str(item['price']),
                         'price_formatted': format_price(item['price']),
                         'url': item['url'],
-                        'site': 'Rakuten',
+                        'site': 'rakuten',
                         'image_url': item.get('image_url'),
                         'seller': None,
                         'location': None,
@@ -137,8 +149,8 @@ def main():
         finally:
             scraper.cleanup()
 
-    # Print database statistics
-    stats = db.get_database_stats()
+    # Print database statistics filtered by current search query
+    stats = db.get_database_stats(query=search_query)
     print("\nDatabase Statistics:", file=sys.stderr)
     print(f"Total items: {stats['total_items']}", file=sys.stderr)
     print(f"Yahoo Auctions items: {stats['yahoo_items']}", file=sys.stderr)
