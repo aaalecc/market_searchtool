@@ -157,6 +157,5 @@ def main():
         finally:
             scraper.cleanup()
 
-C
 if __name__ == "__main__":
     main() 

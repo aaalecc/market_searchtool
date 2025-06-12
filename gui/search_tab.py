@@ -457,10 +457,14 @@ class SearchTab(ctk.CTkFrame):
         saved_search_id = create_saved_search(options, name)
         
         if saved_search_id:
-            # Get all items for the current search query
+            # Get all items from the search results database for this query
+            # Normalize query format to match how it's stored in the database
             current_query = ' '.join(keywords)
+            normalized_query = ' '.join(current_query.split())  # Normalize spaces
+            
+            # Get all items from the search results database
             all_items = get_search_results(
-                query=current_query,
+                query=normalized_query,
                 limit=1000,  # Get all items
                 offset=0,
                 sort_by="price_value",
@@ -468,10 +472,11 @@ class SearchTab(ctk.CTkFrame):
             )
             
             if all_items:
-                add_saved_search_items(saved_search_id, all_items)
+                # Add items to saved search
+                added_count = add_saved_search_items(saved_search_id, all_items)
                 CTkMessagebox(
                     title="保存完了", 
-                    message=f"「{name}」が{len(all_items)}件のアイテムと共に保存されました。", 
+                    message=f"「{name}」が{added_count}件のアイテムと共に保存されました。", 
                     icon="check", 
                     font=(self.font_family, 12)
                 )
@@ -483,18 +488,21 @@ class SearchTab(ctk.CTkFrame):
                     font=(self.font_family, 12)
                 )
 
-            # Refresh the Saved Searches tab if possible
+            # Get the main window and ensure saved searches tab is initialized
             main_window = self.winfo_toplevel()
-            if hasattr(main_window, 'saved_searches_tab') and hasattr(main_window.saved_searches_tab, 'display_saved_searches'):
-                # Access the font_family from the saved_searches_tab instance
-                sst_font_family = main_window.saved_searches_tab.font_family
-                # Define fonts as expected by display_saved_searches
-                name_font = ctk.CTkFont(family=sst_font_family, size=18, weight="bold")
-                opts_font = ctk.CTkFont(family=sst_font_family, size=14)
-                count_font = ctk.CTkFont(family=sst_font_family, size=14, weight="bold")
-                sw_font = ctk.CTkFont(family=sst_font_family, size=14)
-                del_btn_font = ctk.CTkFont(family=sst_font_family, size=14, weight="bold")
+            if hasattr(main_window, 'saved_searches_tab'):
+                # Define fonts for the saved searches tab
+                name_font = ctk.CTkFont(family=self.font_family, size=18, weight="bold")
+                opts_font = ctk.CTkFont(family=self.font_family, size=14)
+                count_font = ctk.CTkFont(family=self.font_family, size=14, weight="bold")
+                sw_font = ctk.CTkFont(family=self.font_family, size=14)
+                del_btn_font = ctk.CTkFont(family=self.font_family, size=14, weight="bold")
+                
+                # Refresh the saved searches tab
                 main_window.saved_searches_tab.display_saved_searches(name_font, opts_font, count_font, sw_font, del_btn_font)
+                
+                # Switch to the saved searches tab
+                main_window.show_saved_searches_tab()
         else:
             CTkMessagebox(
                 title="保存失敗", 

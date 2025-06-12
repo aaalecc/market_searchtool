@@ -326,31 +326,31 @@ class DatabaseManager:
                     search_query
                 ))
             
-            if values:
-                # Execute batch insert
-                conn.executemany("""
-                    INSERT INTO search_results (
-                        title, price_value, currency, price_raw, price_formatted,
-                        url, site, image_url, seller, location, condition,
-                        shipping_info, search_query
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, values)
-                
-                inserted_count = len(values)
-                
-                # Print final statistics
-                print("\nDatabase Statistics:")
-                stats = self.get_database_stats(query=search_query)
-                print(f"Total items in database: {stats['total_items']}")
-                print(f"Yahoo items: {stats['yahoo_items']}")
-                print(f"Rakuten items: {stats['rakuten_items']}")
-                
-                conn.commit()
-                return inserted_count
-            else:
+            if not values:
                 print("\nNo new items to insert (all were duplicates)")
                 return 0
-                
+            
+            # Execute batch insert
+            conn.executemany("""
+                INSERT INTO search_results (
+                    title, price_value, currency, price_raw, price_formatted,
+                    url, site, image_url, seller, location, condition,
+                    shipping_info, search_query
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, values)
+            
+            inserted_count = len(values)
+            
+            # Print final statistics
+            print("\nDatabase Statistics:")
+            stats = self.get_database_stats(query=search_query)
+            print(f"Total items in database: {stats['total_items']}")
+            print(f"Yahoo items: {stats['yahoo_items']}")
+            print(f"Rakuten items: {stats['rakuten_items']}")
+            
+            conn.commit()
+            return inserted_count
+            
         except Exception as e:
             logger.error(f"Failed to batch insert items: {e}")
             import traceback
@@ -537,12 +537,12 @@ class DatabaseManager:
         """
         conn = self._get_connection()
         try:
-            conn.execute(
-                "UPDATE saved_searches SET notifications_enabled = ? WHERE id = ?",
-                (enabled, saved_search_id)
-            )
-            conn.commit()
-            return True
+                conn.execute(
+                    "UPDATE saved_searches SET notifications_enabled = ? WHERE id = ?",
+                    (enabled, saved_search_id)
+                )
+                conn.commit()
+                return True
         except Exception as e:
             logger.error(f"Failed to update saved search notifications: {e}")
             conn.rollback()
@@ -558,7 +558,7 @@ class DatabaseManager:
         Args:
             saved_search_id: ID of the saved search
             items: List of item dictionaries to add
-            
+        
         Returns:
             Number of items added
         """
@@ -567,40 +567,29 @@ class DatabaseManager:
             # Prepare batch insert
             values = []
             for item in items:
+                # Map fields from search_results to saved_search_items
                 values.append((
                     saved_search_id,
                     item['title'],
                     item['price_value'],
-                    item.get('currency', 'JPY'),
-                    item['price_raw'],
-                    item['price_formatted'],
                     item['url'],
                     item['site'],
-                    item.get('image_url'),
-                    item.get('seller'),
-                    item.get('location'),
-                    item.get('condition'),
-                    item.get('shipping_info', '{}')
+                    item.get('image_url')
                 ))
-            
+            added_count = 0
             if values:
-                # Execute batch insert
+                # Execute batch insert with OR IGNORE to skip duplicates
                 conn.executemany("""
-                    INSERT INTO saved_search_items (
-                        saved_search_id, title, price_value, currency, price_raw,
-                        price_formatted, url, site, image_url, seller, location,
-                        condition, shipping_info
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT OR IGNORE INTO saved_search_items (
+                        saved_search_id, title, price_value, url, site, image_url
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                 """, values)
-                
                 added_count = len(values)
                 logger.info(f"Added {added_count} items to saved search {saved_search_id}")
-                conn.commit()
-                return added_count
             else:
                 logger.info("No items to add to saved search")
-                return 0
-                
+            conn.commit()
+            return added_count
         except Exception as e:
             logger.error(f"Failed to add items to saved search: {e}")
             conn.rollback()
@@ -664,9 +653,9 @@ class DatabaseManager:
         conn = self._get_connection()
         try:
             # Delete will cascade to saved_search_items due to foreign key
-            conn.execute("DELETE FROM saved_searches WHERE id = ?", (saved_search_id,))
-            conn.commit()
-            return True
+                conn.execute("DELETE FROM saved_searches WHERE id = ?", (saved_search_id,))
+                conn.commit()
+                return True
         except Exception as e:
             logger.error(f"Failed to delete saved search: {e}")
             conn.rollback()
@@ -681,13 +670,12 @@ class DatabaseManager:
         Args:
             saved_search_id: ID of the saved search that found these items
             items: List of item dictionaries
-            
+        
         Returns:
             Number of items added
         """
         if not items:
             return 0
-            
         conn = self._get_connection()
         try:
             # Prepare batch insert
@@ -707,20 +695,18 @@ class DatabaseManager:
                     item.get('condition'),
                     item.get('shipping_info', '{}')
                 ))
-            
-            # Execute batch insert
-            conn.executemany("""
-                INSERT INTO new_items (
-                    saved_search_id, title, price_value, currency, price_formatted,
-                    url, site, image_url, seller, location, condition, shipping_info
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, values)
-            
-            added_count = len(items)
+            if values:
+                # Execute batch insert
+                conn.executemany("""
+                    INSERT INTO new_items (
+                        saved_search_id, title, price_value, currency, price_formatted,
+                        url, site, image_url, seller, location, condition, shipping_info
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, values)
+            added_count = len(values)
             logger.debug(f"Batch added {added_count} new items for saved search {saved_search_id}")
             conn.commit()
             return added_count
-            
         except Exception as e:
             logger.error(f"Failed to batch add new items: {e}")
             conn.rollback()
@@ -789,7 +775,6 @@ class DatabaseManager:
         """
         if not item_ids:
             return
-            
         conn = self._get_connection()
         try:
             # Use batch update for better performance
