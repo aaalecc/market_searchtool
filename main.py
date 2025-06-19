@@ -20,6 +20,7 @@ from config.settings import (
     WINDOW_CONFIG, DATABASE_CONFIG
 )
 from core.database import db
+from core.image_cache import get_image_cache, shutdown_image_cache
 from gui.main_window import MainWindow
 
 def setup_logging():
@@ -131,6 +132,20 @@ def initialize_database():
         logger.error(f"Database initialization failed: {e}")
         return False
 
+def initialize_image_cache():
+    """Initialize the image cache system."""
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Initialize image cache
+        image_cache = get_image_cache()
+        stats = image_cache.get_cache_stats()
+        logger.info(f"Image cache initialized successfully: {stats}")
+        return True
+    except Exception as e:
+        logger.error(f"Image cache initialization failed: {e}")
+        return False
+
 def setup_default_settings():
     """Setup default application settings if they don't exist."""
     logger = logging.getLogger(__name__)
@@ -230,6 +245,11 @@ def main():
             logger.error("Database initialization failed, exiting...")
             return 1
         
+        # Initialize image cache
+        if not initialize_image_cache():
+            logger.error("Image cache initialization failed, exiting...")
+            return 1
+        
         # Setup default settings
         if not setup_default_settings():
             logger.error("Settings initialization failed, exiting...")
@@ -264,6 +284,13 @@ def main():
     finally:
         # Cleanup operations
         logger.info("Performing cleanup operations...")
+        
+        # Shutdown image cache
+        try:
+            shutdown_image_cache()
+            logger.info("Image cache shutdown completed")
+        except Exception as e:
+            logger.error(f"Error during image cache shutdown: {e}")
         
         # You could add cleanup code here:
         # - Close database connections

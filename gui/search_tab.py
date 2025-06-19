@@ -7,6 +7,7 @@ import customtkinter as ctk
 import logging
 from typing import List, Dict, Any
 from core.database import DatabaseManager, get_search_results, get_database_stats, create_saved_search, add_saved_search_items
+from core.image_cache import get_image_cache
 import threading
 import subprocess
 import sys
@@ -45,7 +46,8 @@ class SearchTab(ctk.CTkFrame):
         # Define available sites
         self.available_sites = {
             'yahoo': {'name': 'Yahoo Auctions'},
-            'rakuten': {'name': 'Rakuten'}
+            'rakuten': {'name': 'Rakuten'},
+            'mercari': {'name': 'Mercari'}
         }
         
         # Initialize pagination state
@@ -244,6 +246,9 @@ class SearchTab(ctk.CTkFrame):
                 print("Command output:", process.stdout)
                 if process.stderr:
                     print("Command errors:", process.stderr)
+                # Always print both stdout and stderr for debugging
+                print("STDOUT:", process.stdout)
+                print("STDERR:", process.stderr)
                 
                 if process.returncode == 0:
                     # Get database stats filtered by current query - normalize query format
@@ -306,7 +311,15 @@ class SearchTab(ctk.CTkFrame):
             font=ctk.CTkFont(size=16),
             text_color="#FFFFFF"
         )
-        rakuten_label.grid(row=3, column=0, columnspan=4, sticky="w", pady=(0, 20))
+        rakuten_label.grid(row=3, column=0, columnspan=4, sticky="w", pady=(0, 5))
+        
+        mercari_label = ctk.CTkLabel(
+            self.results_frame,
+            text=f"Mercari: {stats['mercari_items']} アイテム",
+            font=ctk.CTkFont(size=16),
+            text_color="#FFFFFF"
+        )
+        mercari_label.grid(row=4, column=0, columnspan=4, sticky="w", pady=(0, 20))
         
         # Calculate offset for current page
         offset = (self.current_page - 1) * self.items_per_page
@@ -330,12 +343,12 @@ class SearchTab(ctk.CTkFrame):
                 font=ctk.CTkFont(size=16),
                 text_color="#B3B3B3"
             )
-            no_results.grid(row=4, column=0, columnspan=4, pady=50)
+            no_results.grid(row=5, column=0, columnspan=4, pady=50)
             return
         
         # Display items in a grid (4 items per row)
         for i, item in enumerate(results):
-            row = (i // 4) + 4  # Start from row 4 (after stats)
+            row = (i // 4) + 5  # Start from row 5 (after stats)
             col = i % 4
             
             # Create product card
@@ -344,13 +357,44 @@ class SearchTab(ctk.CTkFrame):
                 'source': item['site'],
                 'price': item['price_formatted'],
                 'image_url': item.get('image_url'),
+                'cached_image_path': item.get('cached_image_path'),
                 'url': item['url']  # Add the URL
             }, self.font_family)
             card.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
         
+        # Preload images for the next page in the background
+        self._preload_next_page_images(current_query, offset + self.items_per_page)
+        
         # Add pagination if there are more than 40 items
         if stats['total_items'] > self.items_per_page:
             self.create_pagination(stats['total_items'])
+    
+    def _preload_next_page_images(self, query: str, next_page_offset: int):
+        """Preload images for the next page in the background."""
+        try:
+            # Get next page items
+            next_page_results = get_search_results(
+                query=query,
+                limit=self.items_per_page,
+                offset=next_page_offset,
+                sort_by="price_value",
+                sort_order="asc"
+            )
+            
+            # Collect image URLs that need caching
+            image_urls = []
+            for item in next_page_results:
+                if item.get('image_url') and not item.get('cached_image_path'):
+                    image_urls.append(item['image_url'])
+            
+            # Preload images in background
+            if image_urls:
+                image_cache = get_image_cache()
+                image_cache.preload_images(image_urls)
+                logger.debug(f"Preloading {len(image_urls)} images for next page")
+                
+        except Exception as e:
+            logger.debug(f"Failed to preload next page images: {e}")
     
     def create_pagination(self, total_items: int):
         """Create pagination controls."""
@@ -573,36 +617,49 @@ class ProductCard(ctk.CTkFrame):
         self.image_frame.grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 12))
         self.image_frame.grid_propagate(False)
         
+        # Try to load cached image first, then fall back to original URL
+        cached_image_path = self.product_data.get('cached_image_path')
         image_url = self.product_data.get('image_url')
-        if image_url:
+        
+        if cached_image_path and os.path.exists(cached_image_path):
+            # Use cached image
             try:
-                response = requests.get(image_url, timeout=5)
-                img_data = BytesIO(response.content)
-                pil_image = Image.open(img_data).convert("RGBA")
+                pil_image = Image.open(cached_image_path)
                 target_size = (220, 140)
-                pil_image = ImageOps.contain(pil_image, target_size, method=Image.LANCZOS)
-                background = Image.new("RGBA", target_size, (62, 62, 62, 255))
-                background.paste(pil_image, ((target_size[0] - pil_image.width) // 2, (target_size[1] - pil_image.height) // 2))
-                self.ctk_image = CTkImage(light_image=background, size=target_size)
+                self.ctk_image = CTkImage(light_image=pil_image, size=target_size)
                 self.image_label = ctk.CTkLabel(
                     self.image_frame,
                     image=self.ctk_image,
                     text=""
                 )
             except Exception as e:
-                self.image_label = ctk.CTkLabel(
-                    self.image_frame,
-                    text="📷",
-                    font=ctk.CTkFont(family=self.font_family, size=48),
-                    text_color="#B3B3B3"
-                )
+                logger.debug(f"Failed to load cached image {cached_image_path}: {e}")
+                self._create_placeholder_image()
+        elif image_url:
+            # Try to get from image cache or download
+            try:
+                image_cache = get_image_cache()
+                cached_path = image_cache.get_cached_image(image_url)
+                
+                if cached_path and os.path.exists(cached_path):
+                    # Use cached image
+                    pil_image = Image.open(cached_path)
+                    target_size = (220, 140)
+                    self.ctk_image = CTkImage(light_image=pil_image, size=target_size)
+                    self.image_label = ctk.CTkLabel(
+                        self.image_frame,
+                        image=self.ctk_image,
+                        text=""
+                    )
+                else:
+                    # Fall back to original download method
+                    self._download_and_display_image(image_url)
+            except Exception as e:
+                logger.debug(f"Failed to get cached image for {image_url}: {e}")
+                self._download_and_display_image(image_url)
         else:
-            self.image_label = ctk.CTkLabel(
-                self.image_frame,
-                text="📷",
-                font=ctk.CTkFont(family=self.font_family, size=48),
-                text_color="#B3B3B3"
-            )
+            self._create_placeholder_image()
+        
         self.image_label.place(relx=0.5, rely=0.5, anchor="center")
         
         # Product title (truncate if too long)
@@ -662,4 +719,36 @@ class ProductCard(ctk.CTkFrame):
     
     def on_leave(self, event):
         """Reset hover effect."""
-        self.configure(fg_color="#282828") 
+        self.configure(fg_color="#282828")
+
+    def _create_placeholder_image(self):
+        """Create a placeholder image for when no image is available."""
+        self.image_label = ctk.CTkLabel(
+            self.image_frame,
+            text="📷",
+            font=ctk.CTkFont(family=self.font_family, size=48),
+            text_color="#B3B3B3"
+        )
+        self.image_label.place(relx=0.5, rely=0.5, anchor="center")
+
+    def _download_and_display_image(self, image_url):
+        """Download and display an image from a given URL."""
+        try:
+            response = requests.get(image_url, timeout=5)
+            img_data = BytesIO(response.content)
+            pil_image = Image.open(img_data).convert("RGBA")
+            target_size = (220, 140)
+            pil_image = ImageOps.contain(pil_image, target_size, method=Image.LANCZOS)
+            background = Image.new("RGBA", target_size, (62, 62, 62, 255))
+            background.paste(pil_image, ((target_size[0] - pil_image.width) // 2, (target_size[1] - pil_image.height) // 2))
+            self.ctk_image = CTkImage(light_image=background, size=target_size)
+            self.image_label = ctk.CTkLabel(
+                self.image_frame,
+                image=self.ctk_image,
+                text=""
+            )
+        except Exception as e:
+            logger.debug(f"Failed to download image from {image_url}: {e}")
+            self._create_placeholder_image()
+        
+        self.image_label.place(relx=0.5, rely=0.5, anchor="center") 

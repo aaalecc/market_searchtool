@@ -88,6 +88,7 @@ project_root/
 - [x] **Core Scraping System:**
   - Yahoo Auctions scraper (`yahoo_auctions.py`) - **Complete & Working**
   - Rakuten Market scraper (`rakuten.py`) - **Complete & Working**
+  - Mercari scraper (`mercari.py`) - **Complete & Working** (Selenium-based with anti-detection)
   - Central scraper coordinator (`test_scraper.py`) - **Complete & Working**
   - Scraping environment configuration (`config/scraping_config.py`) - **Complete**
 
@@ -97,6 +98,7 @@ project_root/
     - Search input with filters (keywords, price range, site selection)
     - Displays all available items from database
     - Results sorted by price (low to high)
+    - Now includes Mercari as a search option
   - **Saved Searches Tab** (`saved_searches_tab.py`) - **Complete & Working**
     - Shows all current saved searches
     - Ability to enable/disable notifications per search
@@ -111,6 +113,7 @@ project_root/
   - Save search functionality - **Complete & Working**
   - New items database tracking - **Complete & Working**
   - Database utilities (`clear_database.py`, `show_database.py`) - **Complete**
+  - Updated to handle Mercari items in statistics
 
 - [x] **Background Processing System:**
   - Periodic scraper (`core/background_tasks.py`) - **Complete & Working**
@@ -118,6 +121,7 @@ project_root/
   - Scrapes all saved searches with notifications enabled
   - Adds new items to new_items database for corresponding saved searches
   - Integrates with notification system
+  - Now supports Mercari in saved searches
 
 - [x] **Notifications:**
   - Desktop notifications (`desktop_notifier.py`) - **Complete & Working**
@@ -129,8 +133,7 @@ project_root/
 
 ### 📋 Planned/Todo
 - [ ] **Priority 1: Additional Scrapers**
-  - Mercari scraper (`mercari.py`) - *Placeholder file exists*
-  - Sneaker Dunk scraper (`sneaker_dunk.py`) - *Placeholder file exists*  
+  - Sneaker Dunk scraper (`sneaker_dunk.py`) - *Placeholder file exists*
   - Grailed scraper (`grailed.py`) - *Placeholder file exists*
   
 - [ ] **Priority 2: UI/UX Improvements**
@@ -229,7 +232,7 @@ schedule>=1.2.0  # For periodic scraping
 - **Yahoo Auctions** (`yahoo_auctions.py`) - **✅ Complete** - Fully implemented with filtering
 - **Rakuten Market** (`rakuten.py`) - **✅ Complete** - Fully implemented with filtering  
 - **Yahoo Flea Market** (`yahoo_flea_market.py`) - **❌ Not started** - Placeholder file
-- **Mercari** (`mercari.py`) - **❌ Not started** - Placeholder file
+- **Mercari** (`mercari.py`) - **✅ Complete** - Selenium-based with anti-detection
 - **Grailed** (`grailed.py`) - **❌ Not started** - Fashion marketplace scraping planned
 - **Sneaker Dunk** (`sneaker_dunk.py`) - **❌ Not started** - Sneaker marketplace scraping planned
 - Rate limiting and respectful scraping practices via `scraping_config.py`
@@ -269,7 +272,7 @@ schedule>=1.2.0  # For periodic scraping
 
 ### Immediate Development Priority
 **Next Goals in Order:**
-1. **Expand Marketplace Coverage** - Implement remaining scrapers (Mercari, Sneaker Dunk, Grailed)
+1. **Expand Marketplace Coverage** - Implement remaining scrapers (Sneaker Dunk, Grailed)
 2. **UI/UX Modernization** - Make interface smoother, more modern, and visually appealing
 3. **Performance Optimization** - Speed up all components (scrapers, GUI, background tasks)
 4. **Discord Integration** - Complete Discord notification system implementation
@@ -330,7 +333,7 @@ schedule>=1.2.0  # For periodic scraping
   - Code organization and documentation could be enhanced
 
 ### Next Steps
-1. **Scraper Expansion** - Implement Mercari, Sneaker Dunk, and Grailed scrapers using existing patterns
+1. **Scraper Expansion** - Implement Sneaker Dunk and Grailed scrapers using existing patterns
 2. **UI Modernization** - Redesign interface with modern CustomTkinter styling and smooth animations
 3. **Performance Tuning** - Profile and optimize scraper speed, GUI responsiveness, and background tasks
 4. **Discord Integration** - Complete webhook notification system with proper formatting and configuration

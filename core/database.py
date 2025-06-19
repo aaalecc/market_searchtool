@@ -13,6 +13,7 @@ import json
 from queue import Queue
 from threading import Lock, local
 import threading
+import os
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ CREATE_TABLES = {
                     url TEXT NOT NULL,
                     site TEXT NOT NULL,
                     image_url TEXT,
+                    cached_image_path TEXT,
                     seller TEXT,
                     location TEXT,
                     condition TEXT,
@@ -58,6 +60,7 @@ CREATE_TABLES = {
                     url TEXT NOT NULL,
                     site TEXT NOT NULL,
                     image_url TEXT,
+                    cached_image_path TEXT,
                     found_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(saved_search_id, title, price_value),
                     FOREIGN KEY(saved_search_id) REFERENCES saved_searches(id) ON DELETE CASCADE
@@ -74,6 +77,7 @@ CREATE_TABLES = {
                     url TEXT NOT NULL,
                     site TEXT NOT NULL,
                     image_url TEXT,
+                    cached_image_path TEXT,
                     seller TEXT,
                     location TEXT,
                     condition TEXT,
@@ -235,6 +239,33 @@ class DatabaseManager:
                     raise
                 logger.debug("notifications_enabled column already exists")
             
+            # Add cached_image_path column to search_results if it doesn't exist
+            try:
+                conn.execute("ALTER TABLE search_results ADD COLUMN cached_image_path TEXT")
+                logger.info("Added cached_image_path column to search_results table")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e):
+                    raise
+                logger.debug("cached_image_path column already exists in search_results")
+            
+            # Add cached_image_path column to saved_search_items if it doesn't exist
+            try:
+                conn.execute("ALTER TABLE saved_search_items ADD COLUMN cached_image_path TEXT")
+                logger.info("Added cached_image_path column to saved_search_items table")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e):
+                    raise
+                logger.debug("cached_image_path column already exists in saved_search_items")
+            
+            # Add cached_image_path column to new_items if it doesn't exist
+            try:
+                conn.execute("ALTER TABLE new_items ADD COLUMN cached_image_path TEXT")
+                logger.info("Added cached_image_path column to new_items table")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e):
+                    raise
+                logger.debug("cached_image_path column already exists in new_items")
+            
             conn.commit()
     
     def clear_old_search_results(self) -> None:
@@ -319,6 +350,7 @@ class DatabaseManager:
                     item['url'],
                     item['site'],
                     item.get('image_url'),
+                    item.get('cached_image_path'),
                     item.get('seller'),
                     item.get('location'),
                     item.get('condition'),
@@ -334,7 +366,7 @@ class DatabaseManager:
             conn.executemany("""
                 INSERT INTO search_results (
                     title, price_value, currency, price_raw, price_formatted,
-                    url, site, image_url, seller, location, condition,
+                    url, site, image_url, cached_image_path, seller, location, condition,
                     shipping_info, search_query
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, values)
@@ -347,6 +379,7 @@ class DatabaseManager:
             print(f"Total items in database: {stats['total_items']}")
             print(f"Yahoo items: {stats['yahoo_items']}")
             print(f"Rakuten items: {stats['rakuten_items']}")
+            print(f"Mercari items: {stats['mercari_items']}")
             
             conn.commit()
             return inserted_count
@@ -445,7 +478,8 @@ class DatabaseManager:
             result = {
                 'total_items': total_items,
                 'yahoo_items': site_counts.get('yahoo', 0),
-                'rakuten_items': site_counts.get('rakuten', 0)
+                'rakuten_items': site_counts.get('rakuten', 0),
+                'mercari_items': site_counts.get('mercari', 0)
             }
             
             # Log the final result
@@ -574,15 +608,16 @@ class DatabaseManager:
                     item['price_value'],
                     item['url'],
                     item['site'],
-                    item.get('image_url')
+                    item.get('image_url'),
+                    item.get('cached_image_path')
                 ))
             added_count = 0
             if values:
                 # Execute batch insert with OR IGNORE to skip duplicates
                 conn.executemany("""
                     INSERT OR IGNORE INTO saved_search_items (
-                        saved_search_id, title, price_value, url, site, image_url
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                        saved_search_id, title, price_value, url, site, image_url, cached_image_path
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, values)
                 added_count = len(values)
                 logger.info(f"Added {added_count} items to saved search {saved_search_id}")
@@ -652,10 +687,49 @@ class DatabaseManager:
         """
         conn = self._get_connection()
         try:
+            # First, collect all cached image paths from saved_search_items
+            cached_image_paths = []
+            cursor = conn.execute(
+                "SELECT cached_image_path FROM saved_search_items WHERE saved_search_id = ? AND cached_image_path IS NOT NULL",
+                (saved_search_id,)
+            )
+            for row in cursor.fetchall():
+                if row[0]:  # cached_image_path is not None
+                    cached_image_paths.append(row[0])
+            
+            # Also collect from new_items table
+            cursor = conn.execute(
+                "SELECT cached_image_path FROM new_items WHERE saved_search_id = ? AND cached_image_path IS NOT NULL",
+                (saved_search_id,)
+            )
+            for row in cursor.fetchall():
+                if row[0]:  # cached_image_path is not None
+                    cached_image_paths.append(row[0])
+            
             # Delete will cascade to saved_search_items due to foreign key
-                conn.execute("DELETE FROM saved_searches WHERE id = ?", (saved_search_id,))
-                conn.commit()
-                return True
+            conn.execute("DELETE FROM saved_searches WHERE id = ?", (saved_search_id,))
+            conn.commit()
+            
+            # Clean up cached images if any were found
+            if cached_image_paths:
+                try:
+                    from core.image_cache import get_image_cache
+                    image_cache = get_image_cache()
+                    
+                    # Remove the cached image files
+                    for cached_path in cached_image_paths:
+                        try:
+                            if os.path.exists(cached_path):
+                                os.remove(cached_path)
+                                logger.debug(f"Deleted cached image: {cached_path}")
+                        except Exception as e:
+                            logger.warning(f"Failed to delete cached image {cached_path}: {e}")
+                    
+                    logger.info(f"Cleaned up {len(cached_image_paths)} cached images for deleted saved search {saved_search_id}")
+                except Exception as e:
+                    logger.error(f"Failed to clean up cached images for saved search {saved_search_id}: {e}")
+            
+            return True
         except Exception as e:
             logger.error(f"Failed to delete saved search: {e}")
             conn.rollback()
@@ -690,6 +764,7 @@ class DatabaseManager:
                     item['url'],
                     item['site'],
                     item.get('image_url'),
+                    item.get('cached_image_path'),
                     item.get('seller'),
                     item.get('location'),
                     item.get('condition'),
@@ -700,7 +775,7 @@ class DatabaseManager:
                 conn.executemany("""
                     INSERT INTO new_items (
                         saved_search_id, title, price_value, currency, price_formatted,
-                        url, site, image_url, seller, location, condition, shipping_info
+                        url, site, image_url, cached_image_path, seller, location, condition, shipping_info
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, values)
             added_count = len(values)
