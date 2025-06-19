@@ -81,7 +81,8 @@ class SavedSearchesTab(ctk.CTkFrame):
 
         for i, search in enumerate(saved_searches):
             name = search.get('name', '(No Name)')
-            options = json.loads(search['options_json'])
+            # Get options directly from the search dictionary
+            options = search.get('options', {})
             item_count = len(get_saved_search_items(search['id']))
             
             row_frame = ctk.CTkFrame(self.scroll_frame, fg_color="#282828", corner_radius=12)

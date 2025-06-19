@@ -95,10 +95,10 @@ class YahooAuctionsScraper:
                 'fixed': 3,  # Both auction and set price
                 's1': 'new'  # Sort by newest listings
             }
-            if min_price:
-                params['aucminprice'] = str(min_price)
-            if max_price:
-                params['aucmaxprice'] = str(max_price)
+            if min_price is not None:
+                params['aucminprice'] = str(int(min_price))  # Convert to integer first
+            if max_price is not None:
+                params['aucmaxprice'] = str(int(max_price))  # Convert to integer first
             headers = get_request_headers(site_id='yahoo_auctions')
             response = self.session.get(
                 self.BASE_URL,
@@ -120,9 +120,9 @@ class YahooAuctionsScraper:
                         price = self._normalize_price(price_text)
                         
                         # Skip items that don't match price criteria
-                        if min_price and price < min_price:
+                        if min_price is not None and price < min_price:
                             continue
-                        if max_price and price > max_price:
+                        if max_price is not None and price > max_price:
                             continue
                             
                         url = item.select_one('a')['href']
@@ -152,7 +152,7 @@ class YahooAuctionsScraper:
                             'end_time': end_time,
                             'bid_count': bid_count,
                             'is_fixed_price': is_fixed_price,
-                            'source': 'Yahoo Auctions',
+                            'source': 'yahoo',
                             'timestamp': datetime.now().isoformat()
                         }
                         items.append(item_data)

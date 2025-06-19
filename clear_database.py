@@ -1,15 +1,21 @@
 """
-Script to clear all items from the database.
+Script to clear all data from the database.
 """
 
-from core.database import db
+import sys
+from core.database import clear_all_tables
 
 def main():
-    with db.get_connection() as conn:
-        # Delete all items from search_results table
-        conn.execute("DELETE FROM search_results")
-        conn.commit()
-        print("All items have been deleted from the database.")
+    print("Are you sure you want to clear all data from the database?")
+    print("This will delete all saved searches, search results, and settings.")
+    response = input("Type 'yes' to confirm: ")
+    
+    if response.lower() == 'yes':
+        print("\nClearing database...")
+        clear_all_tables()
+        print("Database cleared successfully.")
+    else:
+        print("Operation cancelled.")
 
 if __name__ == "__main__":
     main() 

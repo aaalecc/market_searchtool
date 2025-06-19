@@ -254,24 +254,46 @@ class MainWindow(ctk.CTk):
     
     def init_tab_content(self):
         """Initialize content for each tab, passing the app_font."""
+        logger.info("Starting tab initialization process...")
         try:
+            logger.debug("Initializing SearchTab...")
             self.search_tab = SearchTab(self.content_container, font=self.app_font)
+            logger.debug("SearchTab initialized successfully")
+            
+            logger.debug("Initializing FeedTab...")
             self.feed_tab = FeedTab(self.content_container, font=self.app_font)
+            logger.debug("FeedTab initialized successfully")
+            
+            logger.debug("Initializing FavoritesTab...")
             self.favorites_tab = FavoritesTab(self.content_container, font=self.app_font)
+            logger.debug("FavoritesTab initialized successfully")
+            
+            logger.debug("Initializing SettingsTab...")
             self.settings_tab = SettingsTab(self.content_container, main_window=self, font=self.app_font)
+            logger.debug("SettingsTab initialized successfully")
+            
+            logger.debug("Initializing SavedSearchesTab...")
             self.saved_searches_tab = SavedSearchesTab(self.content_container, font=self.app_font)
+            logger.debug("SavedSearchesTab initialized successfully")
             
             tabs_to_hide = [self.search_tab, self.feed_tab, self.favorites_tab, self.settings_tab, self.saved_searches_tab]
             
             # Hide all tabs initially
+            logger.debug("Hiding all initialized tabs...")
             for tab in tabs_to_hide:
                 tab.grid_remove()
             
-            logger.info("All tabs initialized and hidden")
+            logger.info("All tabs initialized and hidden successfully")
             
         except Exception as e:
-            logger.error(f"Error initializing tab content: {e}", exc_info=True)
-            self.create_placeholder_content()
+            logger.error(f"Error initializing tab content: {str(e)}", exc_info=True)
+            # Get the current stack trace to see where exactly the error occurred
+            import traceback
+            stack_trace = traceback.format_exc()
+            logger.error(f"Stack trace at initialization failure:\n{stack_trace}")
+            
+            # Create placeholder content with error details
+            self.create_placeholder_content(str(e))
             # Initialize placeholder tabs to prevent attribute errors
             self.search_tab = self.placeholder_label
             self.feed_tab = self.placeholder_label
@@ -279,16 +301,51 @@ class MainWindow(ctk.CTk):
             self.settings_tab = self.placeholder_label
             self.saved_searches_tab = self.placeholder_label
     
-    def create_placeholder_content(self):
-        """Create placeholder content for tabs during development."""
+    def create_placeholder_content(self, error_message: str = None):
+        """Create placeholder content for tabs during development or when initialization fails."""
         logger.info("Creating placeholder tab content...")
         
-        self.placeholder_label = ctk.CTkLabel(
-            self.content_container,
+        # Create a frame to hold both the loading message and error details
+        placeholder_frame = ctk.CTkFrame(self.content_container, fg_color="transparent")
+        placeholder_frame.grid(row=0, column=0, sticky="nsew")
+        
+        # Loading message
+        loading_label = ctk.CTkLabel(
+            placeholder_frame,
             text="🔍 Tab content loading...",
             font=ctk.CTkFont(family=self.app_font_family, size=18)
         )
-        self.placeholder_label.grid(row=0, column=0, sticky="nsew")
+        loading_label.pack(pady=(20, 10))
+        
+        # Error details if available
+        if error_message:
+            error_label = ctk.CTkLabel(
+                placeholder_frame,
+                text=f"Error: {error_message}",
+                font=ctk.CTkFont(family=self.app_font_family, size=14),
+                text_color="#FF4444"
+            )
+            error_label.pack(pady=(0, 10))
+            
+            # Add a button to retry initialization
+            retry_button = ctk.CTkButton(
+                placeholder_frame,
+                text="Retry Initialization",
+                command=self.retry_tab_initialization,
+                font=ctk.CTkFont(family=self.app_font_family, size=14)
+            )
+            retry_button.pack(pady=(10, 20))
+        
+        self.placeholder_label = placeholder_frame
+    
+    def retry_tab_initialization(self):
+        """Retry initializing the tab content."""
+        logger.info("Retrying tab initialization...")
+        # Clear existing placeholder content
+        if hasattr(self, 'placeholder_label'):
+            self.placeholder_label.grid_remove()
+        # Reinitialize tabs
+        self.init_tab_content()
     
     def show_feed_tab(self):
         """Show the feed tab and refresh its content."""
